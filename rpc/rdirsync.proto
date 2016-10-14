@@ -3,10 +3,10 @@
 syntax = "proto3";
 
 option java_multiple_files = true;
-option java_package = "org.bitbucket.hnakamur.rdirsync";
+option java_package = "org.bitbucket.hnakamur.rdirsync.rpc";
 option java_outer_classname = "RDirSyncProto";
 
-package rdirsync;
+package rpc;
 
 service RDirSync {
   rpc FetchFile(FetchRequest) returns (stream FileChunk) {}

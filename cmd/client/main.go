@@ -7,7 +7,8 @@ import (
 	"log"
 	"os"
 
-	"bitbucket.org/hnakamur/rdirsync"
+	"bitbucket.org/hnakamur/rdirsync/rpc"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -57,11 +58,11 @@ func main() {
 		log.Fatalf("fail to dial: %v", err)
 	}
 	defer conn.Close()
-	client := rdirsync.NewRDirSyncClient(conn)
+	client := rpc.NewRDirSyncClient(conn)
 	ctx := context.Background()
 	switch command {
 	case "fetch":
-		stream, err := client.FetchFile(ctx, &rdirsync.FetchRequest{
+		stream, err := client.FetchFile(ctx, &rpc.FetchRequest{
 			Path:    path,
 			BufSize: 64,
 		})
@@ -85,7 +86,7 @@ func main() {
 			}
 		}
 	case "readdir":
-		stream, err := client.ReadDir(ctx, &rdirsync.ReadDirRequest{
+		stream, err := client.ReadDir(ctx, &rpc.ReadDirRequest{
 			Path:        path,
 			AtMostCount: int32(atMostCount),
 		})

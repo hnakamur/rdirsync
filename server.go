@@ -4,15 +4,17 @@ import (
 	"io"
 	"log"
 	"os"
+
+	"bitbucket.org/hnakamur/rdirsync/rpc"
 )
 
 type server struct{}
 
-func NewServer() *server {
+func NewServer() rpc.RDirSyncServer {
 	return new(server)
 }
 
-func (s *server) FetchFile(req *FetchRequest, stream RDirSync_FetchFileServer) error {
+func (s *server) FetchFile(req *rpc.FetchRequest, stream rpc.RDirSync_FetchFileServer) error {
 	log.Printf("FetchFile start. path=%s, bufSize=%d", req.Path, req.BufSize)
 	defer log.Printf("FetchFile exit.")
 	buf := make([]byte, req.BufSize)
@@ -32,7 +34,7 @@ func (s *server) FetchFile(req *FetchRequest, stream RDirSync_FetchFileServer) e
 			return err
 		}
 
-		err = stream.Send(&FileChunk{Chunk: buf})
+		err = stream.Send(&rpc.FileChunk{Chunk: buf})
 		if err != nil {
 			return err
 		}
@@ -41,7 +43,7 @@ func (s *server) FetchFile(req *FetchRequest, stream RDirSync_FetchFileServer) e
 	return nil
 }
 
-func (s *server) ReadDir(req *ReadDirRequest, stream RDirSync_ReadDirServer) error {
+func (s *server) ReadDir(req *rpc.ReadDirRequest, stream rpc.RDirSync_ReadDirServer) error {
 	log.Printf("ReadDir start. path=%s, atMostCount=%d", req.Path, req.AtMostCount)
 	defer log.Printf("ReadDir exit.")
 	file, err := os.Open(req.Path)
@@ -59,7 +61,7 @@ func (s *server) ReadDir(req *ReadDirRequest, stream RDirSync_ReadDirServer) err
 		}
 
 		infos := newFileInfosFromOS(osFileInfos)
-		err = stream.Send(&FileInfos{Infos: infos})
+		err = stream.Send(&rpc.FileInfos{Infos: infos})
 		if err != nil {
 			return err
 		}
@@ -68,16 +70,16 @@ func (s *server) ReadDir(req *ReadDirRequest, stream RDirSync_ReadDirServer) err
 	return nil
 }
 
-func newFileInfosFromOS(fis []os.FileInfo) []*FileInfo {
-	infos := make([]*FileInfo, 0, len(fis))
+func newFileInfosFromOS(fis []os.FileInfo) []*rpc.FileInfo {
+	infos := make([]*rpc.FileInfo, 0, len(fis))
 	for _, fi := range fis {
 		infos = append(infos, newFileInfoFromOS(fi))
 	}
 	return infos
 }
 
-func newFileInfoFromOS(fi os.FileInfo) *FileInfo {
-	return &FileInfo{
+func newFileInfoFromOS(fi os.FileInfo) *rpc.FileInfo {
+	return &rpc.FileInfo{
 		Name:    fi.Name(),
 		Size:    fi.Size(),
 		Mode:    int32(fi.Mode()),
