@@ -1,5 +1,5 @@
 // NOTE: Run the following command when you modify this file.
-// /usr/local/protobuf3/bin/protoc --go_out=plugins=grpc:. *.proto
+// /usr/local/bin/protoc --go_out=plugins=grpc:. *.proto
 syntax = "proto3";
 
 option java_multiple_files = true;
@@ -10,6 +10,7 @@ package rdirsync;
 
 service RDirSync {
   rpc FetchFile(FetchRequest) returns (stream FileChunk) {}
+  rpc ReadDir(ReadDirRequest) returns (stream FileInfos) {}
 }
 
 message FetchRequest {
@@ -19,4 +20,21 @@ message FetchRequest {
 
 message FileChunk {
   bytes chunk = 1;
+}
+
+message ReadDirRequest {
+  string path = 1;
+  int32 atMostCount = 2;
+}
+
+message FileInfos {
+  repeated FileInfo infos = 1;
+}
+
+message FileInfo {
+  string name = 1;
+  int64 size = 2;
+  int32 mode = 3;
+  int64 modTime = 4;
+  bool isDir = 5;
 }

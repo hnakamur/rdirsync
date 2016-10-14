@@ -22,11 +22,13 @@ func main() {
 	var serverAddr string
 	flag.StringVar(&serverAddr, "server-addr", "127.0.0.1:10000", "server listen address")
 	var command string
-	flag.StringVar(&command, "command", "fetch", "operation: currently only fetch is supported")
+	flag.StringVar(&command, "command", "fetch", "operation: one of fetch, readdir")
 	var path string
 	flag.StringVar(&path, "path", "/home/hnakamur/gocode/src/bitbucket.org/hnakamur/rdirsync/rdirsync.proto", "file path to fetch")
 	var localPath string
 	flag.StringVar(&localPath, "local-path", "rdirsync.proto", "file path to save")
+	var atMostCount int
+	flag.IntVar(&atMostCount, "at-most-count", 16, "at most file info count")
 	flag.Parse()
 
 	var opts []grpc.DialOption
@@ -80,6 +82,23 @@ func main() {
 			_, err = file.Write(chunk.Chunk)
 			if err != nil {
 				log.Fatalf("failed to write file; %s", err)
+			}
+		}
+	case "readdir":
+		stream, err := client.ReadDir(ctx, &rdirsync.ReadDirRequest{
+			Path:        path,
+			AtMostCount: int32(atMostCount),
+		})
+		if err != nil {
+			log.Fatalf("failed to read directory; %s", err)
+		}
+		for {
+			infos, err := stream.Recv()
+			if err == io.EOF {
+				break
+			}
+			for _, info := range infos.Infos {
+				log.Printf("info=%+v", info)
 			}
 		}
 	default:
