@@ -3,11 +3,10 @@ package main
 import (
 	"context"
 	"flag"
-	"io"
 	"log"
 	"os"
 
-	"bitbucket.org/hnakamur/rdirsync/rpc"
+	"bitbucket.org/hnakamur/rdirsync"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -24,8 +23,8 @@ func main() {
 	flag.StringVar(&serverAddr, "server-addr", "127.0.0.1:10000", "server listen address")
 	var command string
 	flag.StringVar(&command, "command", "fetch", "operation: one of fetch, readdir")
-	var path string
-	flag.StringVar(&path, "path", "/home/hnakamur/gocode/src/bitbucket.org/hnakamur/rdirsync/rdirsync.proto", "file path to fetch")
+	var remotePath string
+	flag.StringVar(&remotePath, "remote-path", "/home/hnakamur/gocode/src/bitbucket.org/hnakamur/rdirsync/rpc/rdirsync.proto", "file path to fetch")
 	var localPath string
 	flag.StringVar(&localPath, "local-path", "rdirsync.proto", "file path to save")
 	var atMostCount int
@@ -58,49 +57,25 @@ func main() {
 		log.Fatalf("fail to dial: %v", err)
 	}
 	defer conn.Close()
-	client := rpc.NewRDirSyncClient(conn)
+	client := rdirsync.NewClientFacade(conn, 0, atMostCount)
 	ctx := context.Background()
 	switch command {
 	case "fetch":
-		stream, err := client.FetchFile(ctx, &rpc.FetchRequest{
-			Path:    path,
-			BufSize: 64,
-		})
+		err := client.FetchFile(ctx, remotePath, localPath)
 		if err != nil {
 			log.Fatalf("failed to fetch file; %s", err)
 		}
-		file, err := os.Create(localPath)
-		if err != nil {
-			log.Fatalf("failed to create file; %s", err)
-		}
-		defer file.Close()
-		for {
-			chunk, err := stream.Recv()
-			if err == io.EOF {
-				break
-			}
-			log.Printf("len(chunk.Chunk)=%d", len(chunk.Chunk))
-			_, err = file.Write(chunk.Chunk)
-			if err != nil {
-				log.Fatalf("failed to write file; %s", err)
-			}
-		}
 	case "readdir":
-		stream, err := client.ReadDir(ctx, &rpc.ReadDirRequest{
-			Path:        path,
-			AtMostCount: int32(atMostCount),
-		})
-		if err != nil {
-			log.Fatalf("failed to read directory; %s", err)
-		}
-		for {
-			infos, err := stream.Recv()
-			if err == io.EOF {
-				break
+		infoQueue := make(chan os.FileInfo, atMostCount)
+		go func() {
+			err := client.ReadDirToQueue(ctx, remotePath, infoQueue)
+			if err != nil {
+				log.Fatalf("failed to read directory; %s", err)
 			}
-			for _, info := range infos.Infos {
-				log.Printf("info=%+v", info)
-			}
+			close(infoQueue)
+		}()
+		for info := range infoQueue {
+			log.Printf("info=%+v", info)
 		}
 	default:
 		log.Fatalf("Unsupported command: %s", command)

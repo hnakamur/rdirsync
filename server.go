@@ -20,12 +20,14 @@ func (s *server) FetchFile(req *rpc.FetchRequest, stream rpc.RDirSync_FetchFileS
 	buf := make([]byte, req.BufSize)
 	file, err := os.Open(req.Path)
 	if err != nil {
+		log.Printf("failed to open file; err=%+v", err)
 		return err
 	}
 	defer file.Close()
 
 	for {
 		n, err := io.ReadFull(file, buf)
+		log.Printf("after ReadFull. n=%d, err=%+v", n, err)
 		if err == io.EOF {
 			break
 		} else if err == io.ErrUnexpectedEOF {
@@ -35,6 +37,7 @@ func (s *server) FetchFile(req *rpc.FetchRequest, stream rpc.RDirSync_FetchFileS
 		}
 
 		err = stream.Send(&rpc.FileChunk{Chunk: buf})
+		log.Printf("after stream.Send. err=%+v", err)
 		if err != nil {
 			return err
 		}
@@ -84,6 +87,5 @@ func newFileInfoFromOS(fi os.FileInfo) *rpc.FileInfo {
 		Size:    fi.Size(),
 		Mode:    int32(fi.Mode()),
 		ModTime: fi.ModTime().Unix(),
-		IsDir:   fi.IsDir(),
 	}
 }

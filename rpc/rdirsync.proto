@@ -36,5 +36,4 @@ message FileInfo {
   int64 size = 2;
   int32 mode = 3;
   int64 modTime = 4;
-  bool isDir = 5;
 }
