@@ -1,0 +1,22 @@
+// NOTE: Run the following command when you modify this file.
+// /usr/local/protobuf3/bin/protoc --go_out=plugins=grpc:. *.proto
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "org.bitbucket.hnakamur.rdirsync";
+option java_outer_classname = "RDirSyncProto";
+
+package rdirsync;
+
+service RDirSync {
+  rpc FetchFile(FetchRequest) returns (stream FileChunk) {}
+}
+
+message FetchRequest {
+  string path = 1;
+  int32 bufSize = 2;
+}
+
+message FileChunk {
+  bytes chunk = 1;
+}
