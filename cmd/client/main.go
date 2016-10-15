@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"log"
-	"os"
 
 	"bitbucket.org/hnakamur/rdirsync"
 
@@ -57,7 +56,7 @@ func main() {
 		log.Fatalf("fail to dial: %v", err)
 	}
 	defer conn.Close()
-	client := rdirsync.NewClientFacade(conn, 0, atMostCount)
+	client := rdirsync.NewClientFacade(conn, nil)
 	ctx := context.Background()
 	switch command {
 	case "fetch":
@@ -66,15 +65,11 @@ func main() {
 			log.Fatalf("failed to fetch file; %s", err)
 		}
 	case "readdir":
-		infoQueue := make(chan os.FileInfo, atMostCount)
-		go func() {
-			err := client.ReadDirToQueue(ctx, remotePath, infoQueue)
-			if err != nil {
-				log.Fatalf("failed to read directory; %s", err)
-			}
-			close(infoQueue)
-		}()
-		for info := range infoQueue {
+		infos, err := client.ReadDir(ctx, remotePath)
+		if err != nil {
+			log.Fatalf("failed to read directory; %s", err)
+		}
+		for _, info := range infos {
 			log.Printf("info=%+v", info)
 		}
 	default:
