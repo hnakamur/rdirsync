@@ -9,11 +9,11 @@ option java_outer_classname = "RDirSyncProto";
 package rpc;
 
 service RDirSync {
-  rpc FetchFile(FetchRequest) returns (stream FileChunk) {}
+  rpc FetchFile(FetchFileRequest) returns (stream FileChunk) {}
   rpc ReadDir(ReadDirRequest) returns (stream FileInfos) {}
 }
 
-message FetchRequest {
+message FetchFileRequest {
   string path = 1;
   int32 bufSize = 2;
 }

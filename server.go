@@ -13,7 +13,7 @@ func NewServer() rpc.RDirSyncServer {
 	return new(server)
 }
 
-func (s *server) FetchFile(req *rpc.FetchRequest, stream rpc.RDirSync_FetchFileServer) error {
+func (s *server) FetchFile(req *rpc.FetchFileRequest, stream rpc.RDirSync_FetchFileServer) error {
 	buf := make([]byte, req.BufSize)
 	file, err := os.Open(req.Path)
 	if err != nil {

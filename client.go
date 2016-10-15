@@ -54,7 +54,7 @@ func NewClientFacade(cc *grpc.ClientConn, config *ClientFacadeConfig) *ClientFac
 }
 
 func (c *ClientFacade) FetchFileToWriter(ctx context.Context, remotePath string, w io.Writer) error {
-	stream, err := c.client.FetchFile(ctx, &rpc.FetchRequest{
+	stream, err := c.client.FetchFile(ctx, &rpc.FetchFileRequest{
 		Path:    remotePath,
 		BufSize: int32(c.bufSize),
 	})
