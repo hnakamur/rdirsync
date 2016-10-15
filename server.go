@@ -76,7 +76,9 @@ func (s *server) ReadDir(req *rpc.ReadDirRequest, stream rpc.RDirSync_ReadDirSer
 func newFileInfosFromOS(fis []os.FileInfo) []*rpc.FileInfo {
 	infos := make([]*rpc.FileInfo, 0, len(fis))
 	for _, fi := range fis {
-		infos = append(infos, newFileInfoFromOS(fi))
+		if fi.IsDir() || fi.Mode().IsRegular() {
+			infos = append(infos, newFileInfoFromOS(fi))
+		}
 	}
 	return infos
 }
