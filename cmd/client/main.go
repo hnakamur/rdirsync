@@ -21,7 +21,7 @@ func main() {
 	var serverAddr string
 	flag.StringVar(&serverAddr, "server-addr", "127.0.0.1:10000", "server listen address")
 	var command string
-	flag.StringVar(&command, "command", "fetch", "operation: one of fetch, readdir")
+	flag.StringVar(&command, "command", "fetch", "operation: one of fetch, readdir, fetchdir")
 	var remotePath string
 	flag.StringVar(&remotePath, "remote-path", "/home/hnakamur/gocode/src/bitbucket.org/hnakamur/rdirsync/rpc/rdirsync.proto", "file path to fetch")
 	var localPath string
@@ -71,6 +71,11 @@ func main() {
 		}
 		for _, info := range infos {
 			log.Printf("info=%+v", info)
+		}
+	case "fetchdir":
+		err := client.FetchDir(ctx, remotePath, localPath)
+		if err != nil {
+			log.Fatalf("failed to fetch directory; %s", err)
 		}
 	default:
 		log.Fatalf("Unsupported command: %s", command)

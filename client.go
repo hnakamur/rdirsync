@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -143,4 +144,100 @@ func (a osFileInfosByName) Less(i, j int) bool { return a[i].Name() < a[j].Name(
 
 func sortFileInfosByName(infos []os.FileInfo) {
 	sort.Sort(osFileInfosByName(infos))
+}
+
+func (c *ClientFacade) FetchDir(ctx context.Context, remotePath, localPath string) error {
+	remoteInfos, err := c.ReadDir(ctx, remotePath)
+	if err != nil {
+		return err
+	}
+
+	err = ensureDirExists(localPath, 0777)
+	if err != nil {
+		return err
+	}
+
+	localInfos, err := readLocalDir(localPath)
+	if err != nil {
+		return err
+	}
+
+	li := 0
+	for _, rfi := range remoteInfos {
+		for li < len(localInfos) && localInfos[li].Name() < rfi.Name() {
+			li++
+		}
+
+		if li < len(localInfos) && localInfos[li].Name() == rfi.Name() {
+			lfi := localInfos[li]
+			if rfi.IsDir() {
+				if lfi.IsDir() {
+					continue
+				} else {
+					err = os.Remove(filepath.Join(localPath, lfi.Name()))
+					if err != nil {
+						return err
+					}
+				}
+			} else {
+				if lfi.IsDir() {
+					err = os.RemoveAll(filepath.Join(localPath, lfi.Name()))
+					if err != nil {
+						return err
+					}
+				}
+			}
+		}
+
+		if rfi.IsDir() {
+			err = c.FetchDir(ctx, filepath.Join(remotePath, rfi.Name()), filepath.Join(localPath, rfi.Name()))
+			if err != nil {
+				return err
+			}
+		} else {
+			err = c.FetchFile(ctx, filepath.Join(remotePath, rfi.Name()), filepath.Join(localPath, rfi.Name()))
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func ensureDirExists(path string, mode os.FileMode) error {
+	lfi, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		err = os.MkdirAll(path, mode.Perm())
+		if err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	} else if !lfi.IsDir() {
+		err = os.Remove(path)
+		if err != nil {
+			return err
+		}
+		err = os.MkdirAll(path, mode.Perm())
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func readLocalDir(path string) ([]os.FileInfo, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	infos, err := file.Readdir(0)
+	if err != nil {
+		return nil, err
+	}
+	sortFileInfosByName(infos)
+	return infos, nil
 }
