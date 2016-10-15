@@ -52,15 +52,26 @@ func NewClientFacade(cc *grpc.ClientConn, config *ClientFacadeConfig) *ClientFac
 	}
 }
 
-func (c *ClientFacade) FetchFile(ctx context.Context, remotePath, localPath string) error {
-	return c.fetchFileAndChmod(ctx, remotePath, localPath, nil)
+func (c *ClientFacade) stat(ctx context.Context, remotePath string) (os.FileInfo, error) {
+	info, err := c.client.Stat(ctx, &rpc.StatRequest{Path: remotePath})
+	if err != nil {
+		return nil, err
+	}
+	return newFileInfoFromRPC(info), nil
 }
 
-func (c *ClientFacade) fetchFileAndChmod(ctx context.Context, remotePath, localPath string, mode *os.FileMode) error {
+func (c *ClientFacade) FetchFile(ctx context.Context, remotePath, localPath string) error {
+	fi, err := c.stat(ctx, remotePath)
+	if err != nil {
+		return err
+	}
+	return c.fetchFileAndChmod(ctx, remotePath, localPath, fi.Mode())
+}
+
+func (c *ClientFacade) fetchFileAndChmod(ctx context.Context, remotePath, localPath string, mode os.FileMode) error {
 	stream, err := c.client.FetchFile(ctx, &rpc.FetchFileRequest{
-		Path:     remotePath,
-		BufSize:  int32(c.bufSize),
-		WantMode: mode == nil,
+		Path:    remotePath,
+		BufSize: int32(c.bufSize),
 	})
 	if err != nil {
 		return err
@@ -89,21 +100,14 @@ func (c *ClientFacade) fetchFileAndChmod(ctx context.Context, remotePath, localP
 			return err
 		}
 
-		if mode == nil {
-			m := os.FileMode(chunk.Mode)
-			mode = &m
-		}
-
 		_, err = file.Write(chunk.Chunk)
 		if err != nil {
 			return err
 		}
 	}
-	if mode != nil {
-		err := file.Chmod(mode.Perm())
-		if err != nil {
-			return err
-		}
+	err = file.Chmod(mode.Perm())
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -136,13 +140,7 @@ func (c *ClientFacade) ReadDir(ctx context.Context, remotePath string) ([]os.Fil
 func convertRPCFileInfosToOSFileInfos(rpcFileInfos []*rpc.FileInfo) []os.FileInfo {
 	infos := make([]os.FileInfo, 0, len(rpcFileInfos))
 	for _, info := range rpcFileInfos {
-		infos = append(infos,
-			&fileInfo{
-				name:    info.Name,
-				size:    info.Size,
-				mode:    os.FileMode(info.Mode),
-				modTime: time.Unix(info.ModTime, 0),
-			})
+		infos = append(infos, newFileInfoFromRPC(info))
 	}
 	return infos
 }
@@ -165,6 +163,15 @@ func (fi fileInfo) ModTime() time.Time { return fi.modTime }
 func (fi fileInfo) IsDir() bool { return fi.Mode().IsDir() }
 
 func (fi fileInfo) Sys() interface{} { return nil }
+
+func newFileInfoFromRPC(info *rpc.FileInfo) *fileInfo {
+	return &fileInfo{
+		name:    info.Name,
+		size:    info.Size,
+		mode:    os.FileMode(info.Mode),
+		modTime: time.Unix(info.ModTime, 0),
+	}
+}
 
 func (c *ClientFacade) FetchDir(ctx context.Context, remotePath, localPath string) error {
 	remoteInfos, err := c.ReadDir(ctx, remotePath)
@@ -225,11 +232,10 @@ func (c *ClientFacade) FetchDir(ctx context.Context, remotePath, localPath strin
 				return err
 			}
 		} else {
-			mode := rfi.Mode()
 			err = c.fetchFileAndChmod(ctx,
 				filepath.Join(remotePath, rfi.Name()),
 				filepath.Join(localPath, rfi.Name()),
-				&mode)
+				rfi.Mode())
 			if err != nil {
 				return err
 			}
