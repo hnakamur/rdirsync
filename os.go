@@ -1,6 +1,19 @@
 package rdirsync
 
-import "os"
+import (
+	"os"
+	"sort"
+)
+
+type osFileInfosByName []os.FileInfo
+
+func (a osFileInfosByName) Len() int           { return len(a) }
+func (a osFileInfosByName) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a osFileInfosByName) Less(i, j int) bool { return a[i].Name() < a[j].Name() }
+
+func sortFileInfosByName(infos []os.FileInfo) {
+	sort.Sort(osFileInfosByName(infos))
+}
 
 func ensureDirExists(path string, mode os.FileMode) error {
 	lfi, err := os.Stat(path)

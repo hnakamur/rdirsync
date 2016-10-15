@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"time"
 
 	"bitbucket.org/hnakamur/rdirsync/rpc"
@@ -144,16 +143,6 @@ func (fi fileInfo) ModTime() time.Time { return fi.modTime }
 func (fi fileInfo) IsDir() bool { return fi.Mode().IsDir() }
 
 func (fi fileInfo) Sys() interface{} { return nil }
-
-type osFileInfosByName []os.FileInfo
-
-func (a osFileInfosByName) Len() int           { return len(a) }
-func (a osFileInfosByName) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a osFileInfosByName) Less(i, j int) bool { return a[i].Name() < a[j].Name() }
-
-func sortFileInfosByName(infos []os.FileInfo) {
-	sort.Sort(osFileInfosByName(infos))
-}
 
 func (c *ClientFacade) FetchDir(ctx context.Context, remotePath, localPath string) error {
 	remoteInfos, err := c.ReadDir(ctx, remotePath)
