@@ -229,11 +229,19 @@ func (c *ClientFacade) SendFile(ctx context.Context, localPath, remotePath strin
 	}
 	defer file.Close()
 
+	fi, err := file.Stat()
+	if err != nil {
+		return err
+	}
+
 	stream, err := c.client.SendFile(ctx)
 	if err != nil {
 		return err
 	}
-	err = stream.Send(&rpc.SendFileRequest{Path: remotePath})
+	err = stream.Send(&rpc.SendFileRequest{
+		Path: remotePath,
+		Mode: int32(fi.Mode().Perm()),
+	})
 	if err != nil {
 		return err
 	}
@@ -351,4 +359,8 @@ func (c *ClientFacade) SendDir(ctx context.Context, localPath, remotePath string
 	}
 
 	return nil
+}
+
+func (c *ClientFacade) MakeReadWritable(path string) error {
+	return makeReadWritable(path)
 }

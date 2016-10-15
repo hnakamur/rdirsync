@@ -81,6 +81,7 @@ func (s *server) EnsureNotExist(ctx context.Context, req *rpc.EnsureNotExistRequ
 
 func (s *server) SendFile(stream rpc.RDirSync_SendFileServer) error {
 	var file *os.File
+	var mode os.FileMode
 	for {
 		chunk, err := stream.Recv()
 		if err == io.EOF {
@@ -91,13 +92,24 @@ func (s *server) SendFile(stream rpc.RDirSync_SendFileServer) error {
 		}
 
 		if file == nil {
+			mode = os.FileMode(chunk.Mode)
+
 			err = ensureNotDir(chunk.Path, nil)
 			if err != nil {
 				return err
 			}
 
 			file, err = os.Create(chunk.Path)
-			if err != nil {
+			if os.IsPermission(err) {
+				err = makeReadWritable(chunk.Path)
+				if err != nil {
+					return err
+				}
+				file, err = os.Create(chunk.Path)
+				if err != nil {
+					return err
+				}
+			} else if err != nil {
 				return err
 			}
 			defer file.Close()
@@ -109,6 +121,10 @@ func (s *server) SendFile(stream rpc.RDirSync_SendFileServer) error {
 				return err
 			}
 		}
+	}
+	err := file.Chmod(mode.Perm())
+	if err != nil {
+		return err
 	}
 	return stream.SendAndClose(new(rpc.Empty))
 }
