@@ -52,7 +52,13 @@ func NewClientFacade(cc *grpc.ClientConn, config *ClientFacadeConfig) *ClientFac
 	}
 }
 
-func (c *ClientFacade) FetchFileToWriter(ctx context.Context, remotePath string, w io.Writer) error {
+func (c *ClientFacade) FetchFile(ctx context.Context, remotePath, localPath string) error {
+	file, err := os.Create(localPath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
 	stream, err := c.client.FetchFile(ctx, &rpc.FetchFileRequest{
 		Path:    remotePath,
 		BufSize: int32(c.bufSize),
@@ -68,22 +74,12 @@ func (c *ClientFacade) FetchFileToWriter(ctx context.Context, remotePath string,
 		} else if err != nil {
 			return err
 		}
-		_, err = w.Write(chunk.Chunk)
+		_, err = file.Write(chunk.Chunk)
 		if err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func (c *ClientFacade) FetchFile(ctx context.Context, remotePath, localPath string) error {
-	file, err := os.Create(localPath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	return c.FetchFileToWriter(ctx, remotePath, file)
 }
 
 func (c *ClientFacade) ReadDir(ctx context.Context, remotePath string) ([]os.FileInfo, error) {
