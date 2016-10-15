@@ -176,7 +176,7 @@ func (c *ClientFacade) FetchDir(ctx context.Context, remotePath, localPath strin
 		for li < len(localInfos) && localInfos[li].Name() < rfi.Name() {
 			if !c.keepDeletedFiles {
 				lfi := localInfos[li]
-				err = ensureAbsent(filepath.Join(localPath, lfi.Name()), lfi)
+				err = ensureNotExist(filepath.Join(localPath, lfi.Name()), lfi)
 				if err != nil {
 					return err
 				}
@@ -223,7 +223,7 @@ func (c *ClientFacade) FetchDir(ctx context.Context, remotePath, localPath strin
 		for li < len(localInfos) {
 			lfi := localInfos[li]
 			li++
-			err = ensureAbsent(filepath.Join(localPath, lfi.Name()), lfi)
+			err = ensureNotExist(filepath.Join(localPath, lfi.Name()), lfi)
 			if err != nil {
 				return err
 			}
@@ -255,7 +255,7 @@ func ensureDirExists(path string, mode os.FileMode) error {
 	return nil
 }
 
-func ensureAbsent(path string, fi os.FileInfo) error {
+func ensureNotExist(path string, fi os.FileInfo) error {
 	var err error
 	if fi == nil {
 		fi, err = os.Stat(path)
