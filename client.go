@@ -15,12 +15,14 @@ import (
 type ClientFacadeConfig struct {
 	BufSize          int
 	MaxEntriesPerRPC int
+	KeepDeletedFiles bool
 }
 
 type ClientFacade struct {
-	client      rpc.RDirSyncClient
-	bufSize     int
-	atMostCount int
+	client           rpc.RDirSyncClient
+	bufSize          int
+	atMostCount      int
+	keepDeletedFiles bool
 }
 
 func NewClientFacade(cc *grpc.ClientConn, config *ClientFacadeConfig) *ClientFacade {
@@ -37,10 +39,17 @@ func NewClientFacade(cc *grpc.ClientConn, config *ClientFacadeConfig) *ClientFac
 	} else {
 		atMostCount = 1024
 	}
+
+	var keepDeletedFiles bool
+	if config != nil {
+		keepDeletedFiles = config.KeepDeletedFiles
+	}
+
 	return &ClientFacade{
-		client:      rpc.NewRDirSyncClient(cc),
-		bufSize:     bufSize,
-		atMostCount: atMostCount,
+		client:           rpc.NewRDirSyncClient(cc),
+		bufSize:          bufSize,
+		atMostCount:      atMostCount,
+		keepDeletedFiles: keepDeletedFiles,
 	}
 }
 
@@ -165,11 +174,19 @@ func (c *ClientFacade) FetchDir(ctx context.Context, remotePath, localPath strin
 	li := 0
 	for _, rfi := range remoteInfos {
 		for li < len(localInfos) && localInfos[li].Name() < rfi.Name() {
+			if !c.keepDeletedFiles {
+				lfi := localInfos[li]
+				err = ensureAbsent(filepath.Join(localPath, lfi.Name()), lfi)
+				if err != nil {
+					return err
+				}
+			}
 			li++
 		}
 
 		if li < len(localInfos) && localInfos[li].Name() == rfi.Name() {
 			lfi := localInfos[li]
+			li++
 			if rfi.IsDir() {
 				if lfi.IsDir() {
 					continue
@@ -202,6 +219,17 @@ func (c *ClientFacade) FetchDir(ctx context.Context, remotePath, localPath strin
 		}
 	}
 
+	if !c.keepDeletedFiles {
+		for li < len(localInfos) {
+			lfi := localInfos[li]
+			li++
+			err = ensureAbsent(filepath.Join(localPath, lfi.Name()), lfi)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -225,6 +253,21 @@ func ensureDirExists(path string, mode os.FileMode) error {
 		}
 	}
 	return nil
+}
+
+func ensureAbsent(path string, fi os.FileInfo) error {
+	var err error
+	if fi == nil {
+		fi, err = os.Stat(path)
+		if err != nil {
+			return err
+		}
+	}
+	if fi.IsDir() {
+		return os.RemoveAll(path)
+	} else {
+		return os.Remove(path)
+	}
 }
 
 func readLocalDir(path string) ([]os.FileInfo, error) {
