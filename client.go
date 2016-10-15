@@ -174,6 +174,14 @@ func newFileInfoFromRPC(info *rpc.FileInfo) *fileInfo {
 }
 
 func (c *ClientFacade) FetchDir(ctx context.Context, remotePath, localPath string) error {
+	fi, err := c.stat(ctx, remotePath)
+	if err != nil {
+		return err
+	}
+	return c.fetchDirAndChmod(ctx, remotePath, localPath, fi.Mode())
+}
+
+func (c *ClientFacade) fetchDirAndChmod(ctx context.Context, remotePath, localPath string, mode os.FileMode) error {
 	remoteInfos, err := c.ReadDir(ctx, remotePath)
 	if err != nil {
 		return err
@@ -225,9 +233,10 @@ func (c *ClientFacade) FetchDir(ctx context.Context, remotePath, localPath strin
 		}
 
 		if rfi.IsDir() {
-			err = c.FetchDir(ctx,
+			err = c.fetchDirAndChmod(ctx,
 				filepath.Join(remotePath, rfi.Name()),
-				filepath.Join(localPath, rfi.Name()))
+				filepath.Join(localPath, rfi.Name()),
+				rfi.Mode())
 			if err != nil {
 				return err
 			}
@@ -251,6 +260,11 @@ func (c *ClientFacade) FetchDir(ctx context.Context, remotePath, localPath strin
 				return err
 			}
 		}
+	}
+
+	err = os.Chmod(localPath, mode.Perm())
+	if err != nil {
+		return err
 	}
 
 	return nil
