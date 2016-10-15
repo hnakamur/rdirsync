@@ -15,6 +15,7 @@ service RDirSync {
   rpc FetchFile(FetchFileRequest) returns (stream FileChunk) {}
   rpc SendFile(stream SendFileRequest) returns (Empty) {}
 
+  rpc Chmod(ChmodRequest) returns (Empty) {}
   rpc EnsureDirExists(EnsureDirExistsRequest) returns (Empty) {}
   rpc EnsureNotExist(EnsureNotExistRequest) returns (Empty) {}
 }
@@ -46,6 +47,11 @@ message FileInfo {
   int64 size = 2;
   int32 mode = 3;
   int64 modTime = 4;
+}
+
+message ChmodRequest {
+  string path = 1;
+  int32 mode = 2;
 }
 
 message EnsureNotExistRequest {

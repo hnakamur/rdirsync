@@ -78,6 +78,11 @@ func (s *server) ReadDir(req *rpc.ReadDirRequest, stream rpc.RDirSync_ReadDirSer
 	return nil
 }
 
+func (s *server) Chmod(ctx context.Context, req *rpc.ChmodRequest) (*rpc.Empty, error) {
+	err := os.Chmod(req.Path, os.FileMode(req.Mode).Perm())
+	return new(rpc.Empty), err
+}
+
 func (s *server) EnsureDirExists(ctx context.Context, req *rpc.EnsureDirExistsRequest) (*rpc.Empty, error) {
 	err := ensureDirExists(req.Path, 0777)
 	return new(rpc.Empty), err
