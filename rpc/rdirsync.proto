@@ -20,10 +20,12 @@ service RDirSync {
 message FetchFileRequest {
   string path = 1;
   int32 bufSize = 2;
+  bool wantMode = 3;
 }
 
 message FileChunk {
-  bytes chunk = 1;
+  int32 mode = 1;
+  bytes chunk = 2;
 }
 
 message ReadDirRequest {

@@ -53,19 +53,33 @@ func NewClientFacade(cc *grpc.ClientConn, config *ClientFacadeConfig) *ClientFac
 }
 
 func (c *ClientFacade) FetchFile(ctx context.Context, remotePath, localPath string) error {
-	file, err := os.Create(localPath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
+	return c.fetchFileAndChmod(ctx, remotePath, localPath, nil)
+}
 
+func (c *ClientFacade) fetchFileAndChmod(ctx context.Context, remotePath, localPath string, mode *os.FileMode) error {
 	stream, err := c.client.FetchFile(ctx, &rpc.FetchFileRequest{
-		Path:    remotePath,
-		BufSize: int32(c.bufSize),
+		Path:     remotePath,
+		BufSize:  int32(c.bufSize),
+		WantMode: mode == nil,
 	})
 	if err != nil {
 		return err
 	}
+
+	file, err := os.Create(localPath)
+	if os.IsPermission(err) {
+		err = makeReadWritable(localPath)
+		if err != nil {
+			return err
+		}
+		file, err = os.Create(localPath)
+		if err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	defer file.Close()
 
 	for {
 		chunk, err := stream.Recv()
@@ -74,7 +88,19 @@ func (c *ClientFacade) FetchFile(ctx context.Context, remotePath, localPath stri
 		} else if err != nil {
 			return err
 		}
+
+		if mode == nil {
+			m := os.FileMode(chunk.Mode)
+			mode = &m
+		}
+
 		_, err = file.Write(chunk.Chunk)
+		if err != nil {
+			return err
+		}
+	}
+	if mode != nil {
+		err := file.Chmod(mode.Perm())
 		if err != nil {
 			return err
 		}
@@ -192,12 +218,18 @@ func (c *ClientFacade) FetchDir(ctx context.Context, remotePath, localPath strin
 		}
 
 		if rfi.IsDir() {
-			err = c.FetchDir(ctx, filepath.Join(remotePath, rfi.Name()), filepath.Join(localPath, rfi.Name()))
+			err = c.FetchDir(ctx,
+				filepath.Join(remotePath, rfi.Name()),
+				filepath.Join(localPath, rfi.Name()))
 			if err != nil {
 				return err
 			}
 		} else {
-			err = c.FetchFile(ctx, filepath.Join(remotePath, rfi.Name()), filepath.Join(localPath, rfi.Name()))
+			mode := rfi.Mode()
+			err = c.fetchFileAndChmod(ctx,
+				filepath.Join(remotePath, rfi.Name()),
+				filepath.Join(localPath, rfi.Name()),
+				&mode)
 			if err != nil {
 				return err
 			}

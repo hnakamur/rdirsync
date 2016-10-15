@@ -16,13 +16,22 @@ func NewServer() rpc.RDirSyncServer {
 }
 
 func (s *server) FetchFile(req *rpc.FetchFileRequest, stream rpc.RDirSync_FetchFileServer) error {
-	buf := make([]byte, req.BufSize)
 	file, err := os.Open(req.Path)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
+	var mode os.FileMode
+	if req.WantMode {
+		fi, err := file.Stat()
+		if err != nil {
+			return err
+		}
+		mode = fi.Mode()
+	}
+
+	buf := make([]byte, req.BufSize)
 	for {
 		n, err := io.ReadFull(file, buf)
 		if err == io.EOF {
@@ -34,7 +43,7 @@ func (s *server) FetchFile(req *rpc.FetchFileRequest, stream rpc.RDirSync_FetchF
 			return err
 		}
 
-		err = stream.Send(&rpc.FileChunk{Chunk: buf})
+		err = stream.Send(&rpc.FileChunk{Mode: int32(mode), Chunk: buf})
 		if err != nil {
 			return err
 		}
