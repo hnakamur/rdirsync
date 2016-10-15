@@ -5,6 +5,16 @@ import (
 	"sort"
 )
 
+func selectDirAndRegularFiles(fis []os.FileInfo) []os.FileInfo {
+	ret := make([]os.FileInfo, 0, len(fis))
+	for _, fi := range fis {
+		if fi.IsDir() || fi.Mode().IsRegular() {
+			ret = append(ret, fi)
+		}
+	}
+	return ret
+}
+
 type osFileInfosByName []os.FileInfo
 
 func (a osFileInfosByName) Len() int           { return len(a) }

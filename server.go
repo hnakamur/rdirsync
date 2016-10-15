@@ -68,7 +68,7 @@ func (s *server) ReadDir(req *rpc.ReadDirRequest, stream rpc.RDirSync_ReadDirSer
 			return err
 		}
 
-		infos := newFileInfosFromOS(osFileInfos)
+		infos := newFileInfosFromOS(selectDirAndRegularFiles(osFileInfos))
 		err = stream.Send(&rpc.FileInfos{Infos: infos})
 		if err != nil {
 			return err
@@ -141,9 +141,7 @@ func (s *server) SendFile(stream rpc.RDirSync_SendFileServer) error {
 func newFileInfosFromOS(fis []os.FileInfo) []*rpc.FileInfo {
 	infos := make([]*rpc.FileInfo, 0, len(fis))
 	for _, fi := range fis {
-		if fi.IsDir() || fi.Mode().IsRegular() {
-			infos = append(infos, newFileInfoFromOS(fi))
-		}
+		infos = append(infos, newFileInfoFromOS(fi))
 	}
 	return infos
 }
