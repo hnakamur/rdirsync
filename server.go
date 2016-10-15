@@ -4,6 +4,8 @@ import (
 	"io"
 	"os"
 
+	context "golang.org/x/net/context"
+
 	"bitbucket.org/hnakamur/rdirsync/rpc"
 )
 
@@ -25,7 +27,8 @@ func (s *server) FetchFile(req *rpc.FetchFileRequest, stream rpc.RDirSync_FetchF
 		n, err := io.ReadFull(file, buf)
 		if err == io.EOF {
 			break
-		} else if err == io.ErrUnexpectedEOF {
+		}
+		if err == io.ErrUnexpectedEOF {
 			buf = buf[:n]
 		} else if err != nil {
 			return err
@@ -51,7 +54,8 @@ func (s *server) ReadDir(req *rpc.ReadDirRequest, stream rpc.RDirSync_ReadDirSer
 		osFileInfos, err := file.Readdir(int(req.AtMostCount))
 		if err == io.EOF {
 			break
-		} else if err != nil {
+		}
+		if err != nil {
 			return err
 		}
 
@@ -63,6 +67,50 @@ func (s *server) ReadDir(req *rpc.ReadDirRequest, stream rpc.RDirSync_ReadDirSer
 	}
 
 	return nil
+}
+
+func (s *server) EnsureDirExists(ctx context.Context, req *rpc.EnsureDirExistsRequest) (*rpc.Empty, error) {
+	err := ensureDirExists(req.Path, 0777)
+	return new(rpc.Empty), err
+}
+
+func (s *server) EnsureNotExist(ctx context.Context, req *rpc.EnsureNotExistRequest) (*rpc.Empty, error) {
+	err := ensureNotExist(req.Path, nil)
+	return new(rpc.Empty), err
+}
+
+func (s *server) SendFile(stream rpc.RDirSync_SendFileServer) error {
+	var file *os.File
+	for {
+		chunk, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		if file == nil {
+			err = ensureNotDir(chunk.Path, nil)
+			if err != nil {
+				return err
+			}
+
+			file, err = os.Create(chunk.Path)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+		}
+
+		if len(chunk.Chunk) > 0 {
+			_, err = file.Write(chunk.Chunk)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return stream.SendAndClose(new(rpc.Empty))
 }
 
 func newFileInfosFromOS(fis []os.FileInfo) []*rpc.FileInfo {

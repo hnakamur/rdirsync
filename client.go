@@ -233,56 +233,133 @@ func (c *ClientFacade) FetchDir(ctx context.Context, remotePath, localPath strin
 	return nil
 }
 
-func ensureDirExists(path string, mode os.FileMode) error {
-	lfi, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		err = os.MkdirAll(path, mode.Perm())
-		if err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	} else if !lfi.IsDir() {
-		err = os.Remove(path)
-		if err != nil {
-			return err
-		}
-		err = os.MkdirAll(path, mode.Perm())
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func ensureNotExist(path string, fi os.FileInfo) error {
-	var err error
-	if fi == nil {
-		fi, err = os.Stat(path)
-		if os.IsNotExist(err) {
-			return nil
-		} else if err != nil {
-			return err
-		}
-	}
-	if fi.IsDir() {
-		return os.RemoveAll(path)
-	} else {
-		return os.Remove(path)
-	}
-}
-
-func readLocalDir(path string) ([]os.FileInfo, error) {
-	file, err := os.Open(path)
+func (c *ClientFacade) SendFile(ctx context.Context, localPath, remotePath string) error {
+	file, err := os.Open(localPath)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer file.Close()
 
-	infos, err := file.Readdir(0)
+	stream, err := c.client.SendFile(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	sortFileInfosByName(infos)
-	return infos, nil
+	err = stream.Send(&rpc.SendFileRequest{Path: remotePath})
+	if err != nil {
+		return err
+	}
+
+	buf := make([]byte, c.bufSize)
+	for {
+		var n int
+		n, err = io.ReadFull(file, buf)
+		if err == io.EOF {
+			err = nil
+			break
+		}
+		if err == io.ErrUnexpectedEOF {
+			buf = buf[:n]
+		} else if err != nil {
+			break
+		}
+
+		err = stream.Send(&rpc.SendFileRequest{Chunk: buf})
+		if err != nil {
+			break
+		}
+	}
+	_, err2 := stream.CloseAndRecv()
+	if err != nil {
+		return err
+	} else {
+		return err2
+	}
+}
+
+func (c *ClientFacade) ensureDirExists(ctx context.Context, remotePath string) error {
+	_, err := c.client.EnsureDirExists(ctx, &rpc.EnsureDirExistsRequest{Path: remotePath})
+	return err
+}
+
+func (c *ClientFacade) ensureNotExist(ctx context.Context, remotePath string) error {
+	_, err := c.client.EnsureNotExist(ctx, &rpc.EnsureNotExistRequest{Path: remotePath})
+	return err
+}
+
+func (c *ClientFacade) SendDir(ctx context.Context, localPath, remotePath string) error {
+	err := c.ensureDirExists(ctx, remotePath)
+	if err != nil {
+		return err
+	}
+
+	remoteInfos, err := c.ReadDir(ctx, remotePath)
+	if err != nil {
+		return err
+	}
+
+	localInfos, err := readLocalDir(localPath)
+	if err != nil {
+		return err
+	}
+
+	ri := 0
+	for _, lfi := range localInfos {
+		for ri < len(remoteInfos) && remoteInfos[ri].Name() < lfi.Name() {
+			if !c.keepDeletedFiles {
+				rfi := remoteInfos[ri]
+				err = c.ensureNotExist(ctx, filepath.Join(remotePath, rfi.Name()))
+				if err != nil {
+					return err
+				}
+			}
+			ri++
+		}
+
+		for ri < len(remoteInfos) && remoteInfos[ri].Name() == lfi.Name() {
+			rfi := remoteInfos[ri]
+			ri++
+			if lfi.IsDir() {
+				if rfi.IsDir() {
+					continue
+				} else {
+					err = c.ensureNotExist(ctx, filepath.Join(remotePath, rfi.Name()))
+					if err != nil {
+						return err
+					}
+				}
+			} else {
+				if rfi.IsDir() {
+					err = c.ensureNotExist(ctx, filepath.Join(remotePath, rfi.Name()))
+					if err != nil {
+						return err
+					}
+				}
+			}
+		}
+
+		if lfi.IsDir() {
+			err = c.SendDir(ctx, filepath.Join(localPath, lfi.Name()), filepath.Join(remotePath, lfi.Name()))
+			if err != nil {
+				return err
+			}
+		} else {
+			err = c.SendFile(ctx, filepath.Join(localPath, lfi.Name()), filepath.Join(remotePath, lfi.Name()))
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if !c.keepDeletedFiles {
+		for ri < len(remoteInfos) {
+			rfi := remoteInfos[ri]
+			ri++
+			err = c.ensureNotExist(ctx, filepath.Join(remotePath, rfi.Name()))
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
