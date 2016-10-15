@@ -259,7 +259,9 @@ func ensureNotExist(path string, fi os.FileInfo) error {
 	var err error
 	if fi == nil {
 		fi, err = os.Stat(path)
-		if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		} else if err != nil {
 			return err
 		}
 	}
