@@ -3,7 +3,6 @@ package rdirsync
 import (
 	"io"
 	"os"
-	"time"
 
 	"google.golang.org/grpc"
 
@@ -24,7 +23,9 @@ func newServer() pb.RDirSyncServer {
 
 func (s *server) Stat(ctx context.Context, req *pb.StatRequest) (*pb.FileInfo, error) {
 	fi, err := os.Stat(req.Path)
-	if err != nil {
+	if os.IsNotExist(err) {
+		fi = nil
+	} else if err != nil {
 		return nil, err
 	}
 	info := newFileInfoFromOS(fi)
@@ -91,7 +92,9 @@ func (s *server) Chmod(ctx context.Context, req *pb.ChmodRequest) (*pb.Empty, er
 }
 
 func (s *server) Chtimes(ctx context.Context, req *pb.ChtimesRequest) (*pb.Empty, error) {
-	err := os.Chtimes(req.Path, time.Unix(req.Atime, 0), time.Unix(req.Mtime, 0))
+	err := os.Chtimes(req.Path,
+		pb.ConvertTimeFromPB(req.Atime),
+		pb.ConvertTimeFromPB(req.Mtime))
 	return new(pb.Empty), err
 }
 
@@ -157,10 +160,14 @@ func newFileInfosFromOS(fis []os.FileInfo) []*pb.FileInfo {
 }
 
 func newFileInfoFromOS(fi os.FileInfo) *pb.FileInfo {
+	if fi == nil {
+		return new(pb.FileInfo)
+	}
+
 	return &pb.FileInfo{
 		Name:    fi.Name(),
 		Size:    fi.Size(),
 		Mode:    int32(fi.Mode()),
-		ModTime: fi.ModTime().Unix(),
+		ModTime: pb.ConvertTimeToPB(fi.ModTime()),
 	}
 }

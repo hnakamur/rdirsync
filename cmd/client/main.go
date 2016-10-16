@@ -32,6 +32,8 @@ func main() {
 	flag.BoolVar(&keepDeletedFiles, "keep-deleted-files", false, "wether or not keep deleted files")
 	var syncModTime bool
 	flag.BoolVar(&syncModTime, "sync-mod-time", false, "sync modification time")
+	var updateOnly bool
+	flag.BoolVar(&updateOnly, "update-only", false, "skip update files whose size is the same and mod time is equal or newer")
 	flag.Parse()
 
 	var opts []grpc.DialOption
@@ -64,6 +66,7 @@ func main() {
 		rdirsync.SetMaxEntriesPerReadDirRPC(atMostCount),
 		rdirsync.SetKeepDeletedFiles(keepDeletedFiles),
 		rdirsync.SetSyncModTime(syncModTime),
+		rdirsync.SetUpdateOnly(updateOnly),
 	)
 	ctx := context.Background()
 	switch command {

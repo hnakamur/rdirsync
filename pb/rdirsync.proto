@@ -48,7 +48,12 @@ message FileInfo {
   string name = 1;
   int64 size = 2;
   int32 mode = 3;
-  int64 modTime = 4;
+  UnixTime modTime = 4;
+}
+
+message UnixTime {
+  int64 Second = 1;
+  int64 NanoSecond = 2;
 }
 
 message ChmodRequest {
@@ -58,8 +63,8 @@ message ChmodRequest {
 
 message ChtimesRequest {
   string path = 1;
-  int64 atime = 2;
-  int64 mtime = 3;
+  UnixTime atime = 2;
+  UnixTime mtime = 3;
 }
 
 message EnsureNotExistRequest {

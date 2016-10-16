@@ -17,6 +17,7 @@ type Client struct {
 	atMostCount      int
 	keepDeletedFiles bool
 	syncModTime      bool
+	updateOnly       bool
 }
 
 func NewClient(cc *grpc.ClientConn, option ...func(*Client)) *Client {
@@ -56,6 +57,12 @@ func SetSyncModTime(syncModTime bool) func(*Client) {
 	}
 }
 
+func SetUpdateOnly(updateOnly bool) func(*Client) {
+	return func(c *Client) {
+		c.updateOnly = updateOnly
+	}
+}
+
 func (c *Client) stat(ctx context.Context, remotePath string) (os.FileInfo, error) {
 	info, err := c.client.Stat(ctx, &pb.StatRequest{Path: remotePath})
 	if err != nil {
@@ -65,14 +72,25 @@ func (c *Client) stat(ctx context.Context, remotePath string) (os.FileInfo, erro
 }
 
 func (c *Client) FetchFile(ctx context.Context, remotePath, localPath string) error {
-	fi, err := c.stat(ctx, remotePath)
+	rfi, err := c.stat(ctx, remotePath)
 	if err != nil {
 		return err
 	}
-	return c.fetchFileAndChmod(ctx, remotePath, localPath, fi)
+
+	lfi, err := os.Stat(localPath)
+	if os.IsNotExist(err) {
+		lfi = nil
+	} else if err != nil {
+		return err
+	}
+	return c.fetchFileAndChmod(ctx, remotePath, localPath, rfi, lfi)
 }
 
-func (c *Client) fetchFileAndChmod(ctx context.Context, remotePath, localPath string, fi os.FileInfo) error {
+func (c *Client) fetchFileAndChmod(ctx context.Context, remotePath, localPath string, rfi, lfi os.FileInfo) error {
+	if !c.isUpdateNeeded(rfi, lfi) {
+		return nil
+	}
+
 	stream, err := c.client.FetchFile(ctx, &pb.FetchFileRequest{
 		Path:    remotePath,
 		BufSize: int32(c.bufSize),
@@ -110,12 +128,12 @@ func (c *Client) fetchFileAndChmod(ctx context.Context, remotePath, localPath st
 		}
 	}
 
-	err = file.Chmod(fi.Mode().Perm())
+	err = file.Chmod(rfi.Mode().Perm())
 	if err != nil {
 		return err
 	}
 	if c.syncModTime {
-		err = os.Chtimes(localPath, time.Now(), fi.ModTime())
+		err = os.Chtimes(localPath, time.Now(), rfi.ModTime())
 		if err != nil {
 			return err
 		}
@@ -135,8 +153,8 @@ func (c *Client) chtimes(ctx context.Context, remotePath string, atime, mtime ti
 	_, err := c.client.Chtimes(ctx,
 		&pb.ChtimesRequest{
 			Path:  remotePath,
-			Atime: atime.Unix(),
-			Mtime: mtime.Unix()})
+			Atime: pb.ConvertTimeToPB(atime),
+			Mtime: pb.ConvertTimeToPB(mtime)})
 	return err
 }
 
@@ -192,12 +210,16 @@ func (fi fileInfo) IsDir() bool { return fi.Mode().IsDir() }
 
 func (fi fileInfo) Sys() interface{} { return nil }
 
-func newFileInfoFromRPC(info *pb.FileInfo) *fileInfo {
+func newFileInfoFromRPC(info *pb.FileInfo) os.FileInfo {
+	if info.Name == "" {
+		return nil
+	}
+
 	return &fileInfo{
 		name:    info.Name,
 		size:    info.Size,
 		mode:    os.FileMode(info.Mode),
-		modTime: time.Unix(info.ModTime, 0),
+		modTime: pb.ConvertTimeFromPB(info.ModTime),
 	}
 }
 
@@ -238,8 +260,9 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 			li++
 		}
 
+		var lfi os.FileInfo
 		if li < len(localInfos) && localInfos[li].Name() == rfi.Name() {
-			lfi := localInfos[li]
+			lfi = localInfos[li]
 			li++
 			if lfi.IsDir() != rfi.IsDir() {
 				err = ensureNotExist(filepath.Join(localPath, lfi.Name()), lfi)
@@ -261,7 +284,8 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 			err = c.fetchFileAndChmod(ctx,
 				filepath.Join(remotePath, rfi.Name()),
 				filepath.Join(localPath, rfi.Name()),
-				rfi)
+				rfi,
+				lfi)
 			if err != nil {
 				return err
 			}
@@ -293,14 +317,26 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 }
 
 func (c *Client) SendFile(ctx context.Context, localPath, remotePath string) error {
-	fi, err := os.Stat(localPath)
+	lfi, err := os.Stat(localPath)
+	if os.IsNotExist(err) {
+		lfi = nil
+	} else if err != nil {
+		return err
+	}
+
+	rfi, err := c.stat(ctx, remotePath)
 	if err != nil {
 		return err
 	}
-	return c.sendFileAndChmod(ctx, localPath, remotePath, fi)
+
+	return c.sendFileAndChmod(ctx, localPath, remotePath, lfi, rfi)
 }
 
-func (c *Client) sendFileAndChmod(ctx context.Context, localPath, remotePath string, fi os.FileInfo) error {
+func (c *Client) sendFileAndChmod(ctx context.Context, localPath, remotePath string, lfi, rfi os.FileInfo) error {
+	if !c.isUpdateNeeded(lfi, rfi) {
+		return nil
+	}
+
 	file, err := os.Open(localPath)
 	if err != nil {
 		return err
@@ -342,12 +378,12 @@ func (c *Client) sendFileAndChmod(ctx context.Context, localPath, remotePath str
 		return err2
 	}
 
-	err = c.chmod(ctx, remotePath, fi.Mode())
+	err = c.chmod(ctx, remotePath, lfi.Mode())
 	if err != nil {
 		return err
 	}
 	if c.syncModTime {
-		err = c.chtimes(ctx, remotePath, time.Now(), fi.ModTime())
+		err = c.chtimes(ctx, remotePath, time.Now(), lfi.ModTime())
 		if err != nil {
 			return err
 		}
@@ -402,8 +438,9 @@ func (c *Client) sendDirAndChmod(ctx context.Context, localPath, remotePath stri
 			ri++
 		}
 
+		var rfi os.FileInfo
 		for ri < len(remoteInfos) && remoteInfos[ri].Name() == lfi.Name() {
-			rfi := remoteInfos[ri]
+			rfi = remoteInfos[ri]
 			ri++
 			if rfi.IsDir() != lfi.IsDir() {
 				err = c.ensureNotExist(ctx, filepath.Join(remotePath, rfi.Name()))
@@ -425,7 +462,8 @@ func (c *Client) sendDirAndChmod(ctx context.Context, localPath, remotePath stri
 			err = c.sendFileAndChmod(ctx,
 				filepath.Join(localPath, lfi.Name()),
 				filepath.Join(remotePath, lfi.Name()),
-				lfi)
+				lfi,
+				rfi)
 			if err != nil {
 				return err
 			}
@@ -454,4 +492,8 @@ func (c *Client) sendDirAndChmod(ctx context.Context, localPath, remotePath stri
 		}
 	}
 	return nil
+}
+
+func (c *Client) isUpdateNeeded(src, dest os.FileInfo) bool {
+	return !c.updateOnly || dest == nil || dest.Size() != src.Size() || dest.ModTime().Before(src.ModTime())
 }
