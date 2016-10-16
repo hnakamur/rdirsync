@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-type ClientFacade struct {
+type Client struct {
 	client           rpc.RDirSyncClient
 	bufSize          int
 	atMostCount      int
@@ -19,8 +19,8 @@ type ClientFacade struct {
 	syncModTime      bool
 }
 
-func NewClientFacade(cc *grpc.ClientConn, option ...func(*ClientFacade)) *ClientFacade {
-	c := &ClientFacade{
+func NewClient(cc *grpc.ClientConn, option ...func(*Client)) *Client {
+	c := &Client{
 		client:      rpc.NewRDirSyncClient(cc),
 		bufSize:     64 * 1024,
 		atMostCount: 1024,
@@ -32,31 +32,31 @@ func NewClientFacade(cc *grpc.ClientConn, option ...func(*ClientFacade)) *Client
 	return c
 }
 
-func SetBufSize(bufSize int) func(*ClientFacade) {
-	return func(c *ClientFacade) {
+func SetBufSize(bufSize int) func(*Client) {
+	return func(c *Client) {
 		c.bufSize = bufSize
 	}
 }
 
-func SetMaxEntriesPerRPC(maxEntriesPerRPC int) func(*ClientFacade) {
-	return func(c *ClientFacade) {
+func SetMaxEntriesPerRPC(maxEntriesPerRPC int) func(*Client) {
+	return func(c *Client) {
 		c.atMostCount = maxEntriesPerRPC
 	}
 }
 
-func SetKeepDeletedFiles(keepDeletedFiles bool) func(*ClientFacade) {
-	return func(c *ClientFacade) {
+func SetKeepDeletedFiles(keepDeletedFiles bool) func(*Client) {
+	return func(c *Client) {
 		c.keepDeletedFiles = keepDeletedFiles
 	}
 }
 
-func SetSyncModTime(syncModTime bool) func(*ClientFacade) {
-	return func(c *ClientFacade) {
+func SetSyncModTime(syncModTime bool) func(*Client) {
+	return func(c *Client) {
 		c.syncModTime = syncModTime
 	}
 }
 
-func (c *ClientFacade) stat(ctx context.Context, remotePath string) (os.FileInfo, error) {
+func (c *Client) stat(ctx context.Context, remotePath string) (os.FileInfo, error) {
 	info, err := c.client.Stat(ctx, &rpc.StatRequest{Path: remotePath})
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func (c *ClientFacade) stat(ctx context.Context, remotePath string) (os.FileInfo
 	return newFileInfoFromRPC(info), nil
 }
 
-func (c *ClientFacade) FetchFile(ctx context.Context, remotePath, localPath string) error {
+func (c *Client) FetchFile(ctx context.Context, remotePath, localPath string) error {
 	fi, err := c.stat(ctx, remotePath)
 	if err != nil {
 		return err
@@ -72,7 +72,7 @@ func (c *ClientFacade) FetchFile(ctx context.Context, remotePath, localPath stri
 	return c.fetchFileAndChmod(ctx, remotePath, localPath, fi)
 }
 
-func (c *ClientFacade) fetchFileAndChmod(ctx context.Context, remotePath, localPath string, fi os.FileInfo) error {
+func (c *Client) fetchFileAndChmod(ctx context.Context, remotePath, localPath string, fi os.FileInfo) error {
 	stream, err := c.client.FetchFile(ctx, &rpc.FetchFileRequest{
 		Path:    remotePath,
 		BufSize: int32(c.bufSize),
@@ -123,7 +123,7 @@ func (c *ClientFacade) fetchFileAndChmod(ctx context.Context, remotePath, localP
 	return nil
 }
 
-func (c *ClientFacade) chmod(ctx context.Context, remotePath string, mode os.FileMode) error {
+func (c *Client) chmod(ctx context.Context, remotePath string, mode os.FileMode) error {
 	_, err := c.client.Chmod(ctx,
 		&rpc.ChmodRequest{
 			Path: remotePath,
@@ -131,7 +131,7 @@ func (c *ClientFacade) chmod(ctx context.Context, remotePath string, mode os.Fil
 	return err
 }
 
-func (c *ClientFacade) chtimes(ctx context.Context, remotePath string, atime, mtime time.Time) error {
+func (c *Client) chtimes(ctx context.Context, remotePath string, atime, mtime time.Time) error {
 	_, err := c.client.Chtimes(ctx,
 		&rpc.ChtimesRequest{
 			Path:  remotePath,
@@ -140,7 +140,7 @@ func (c *ClientFacade) chtimes(ctx context.Context, remotePath string, atime, mt
 	return err
 }
 
-func (c *ClientFacade) readDir(ctx context.Context, remotePath string) ([]os.FileInfo, error) {
+func (c *Client) readDir(ctx context.Context, remotePath string) ([]os.FileInfo, error) {
 	stream, err := c.client.ReadDir(ctx, &rpc.ReadDirRequest{
 		Path:        remotePath,
 		AtMostCount: int32(c.atMostCount),
@@ -201,7 +201,7 @@ func newFileInfoFromRPC(info *rpc.FileInfo) *fileInfo {
 	}
 }
 
-func (c *ClientFacade) FetchDir(ctx context.Context, remotePath, localPath string) error {
+func (c *Client) FetchDir(ctx context.Context, remotePath, localPath string) error {
 	fi, err := c.stat(ctx, remotePath)
 	if err != nil {
 		return err
@@ -209,7 +209,7 @@ func (c *ClientFacade) FetchDir(ctx context.Context, remotePath, localPath strin
 	return c.fetchDirAndChmod(ctx, remotePath, localPath, fi)
 }
 
-func (c *ClientFacade) fetchDirAndChmod(ctx context.Context, remotePath, localPath string, fi os.FileInfo) error {
+func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath string, fi os.FileInfo) error {
 	remoteInfos, err := c.readDir(ctx, remotePath)
 	if err != nil {
 		return err
@@ -292,7 +292,7 @@ func (c *ClientFacade) fetchDirAndChmod(ctx context.Context, remotePath, localPa
 	return nil
 }
 
-func (c *ClientFacade) SendFile(ctx context.Context, localPath, remotePath string) error {
+func (c *Client) SendFile(ctx context.Context, localPath, remotePath string) error {
 	fi, err := os.Stat(localPath)
 	if err != nil {
 		return err
@@ -300,7 +300,7 @@ func (c *ClientFacade) SendFile(ctx context.Context, localPath, remotePath strin
 	return c.sendFileAndChmod(ctx, localPath, remotePath, fi)
 }
 
-func (c *ClientFacade) sendFileAndChmod(ctx context.Context, localPath, remotePath string, fi os.FileInfo) error {
+func (c *Client) sendFileAndChmod(ctx context.Context, localPath, remotePath string, fi os.FileInfo) error {
 	file, err := os.Open(localPath)
 	if err != nil {
 		return err
@@ -355,17 +355,17 @@ func (c *ClientFacade) sendFileAndChmod(ctx context.Context, localPath, remotePa
 	return nil
 }
 
-func (c *ClientFacade) ensureDirExists(ctx context.Context, remotePath string) error {
+func (c *Client) ensureDirExists(ctx context.Context, remotePath string) error {
 	_, err := c.client.EnsureDirExists(ctx, &rpc.EnsureDirExistsRequest{Path: remotePath})
 	return err
 }
 
-func (c *ClientFacade) ensureNotExist(ctx context.Context, remotePath string) error {
+func (c *Client) ensureNotExist(ctx context.Context, remotePath string) error {
 	_, err := c.client.EnsureNotExist(ctx, &rpc.EnsureNotExistRequest{Path: remotePath})
 	return err
 }
 
-func (c *ClientFacade) SendDir(ctx context.Context, localPath, remotePath string) error {
+func (c *Client) SendDir(ctx context.Context, localPath, remotePath string) error {
 	fi, err := os.Stat(localPath)
 	if err != nil {
 		return err
@@ -373,7 +373,7 @@ func (c *ClientFacade) SendDir(ctx context.Context, localPath, remotePath string
 	return c.sendDirAndChmod(ctx, localPath, remotePath, fi)
 }
 
-func (c *ClientFacade) sendDirAndChmod(ctx context.Context, localPath, remotePath string, fi os.FileInfo) error {
+func (c *Client) sendDirAndChmod(ctx context.Context, localPath, remotePath string, fi os.FileInfo) error {
 	err := c.ensureDirExists(ctx, remotePath)
 	if err != nil {
 		return err

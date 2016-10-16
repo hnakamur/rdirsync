@@ -60,7 +60,7 @@ func main() {
 		log.Fatalf("fail to dial: %v", err)
 	}
 	defer conn.Close()
-	client := rdirsync.NewClientFacade(conn,
+	client := rdirsync.NewClient(conn,
 		rdirsync.SetMaxEntriesPerRPC(atMostCount),
 		rdirsync.SetKeepDeletedFiles(keepDeletedFiles),
 		rdirsync.SetSyncModTime(syncModTime),
