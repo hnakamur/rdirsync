@@ -62,10 +62,10 @@ func (c *ClientFacade) FetchFile(ctx context.Context, remotePath, localPath stri
 	if err != nil {
 		return err
 	}
-	return c.fetchFileAndChmod(ctx, remotePath, localPath, fi.Mode())
+	return c.fetchFileAndChmod(ctx, remotePath, localPath, fi)
 }
 
-func (c *ClientFacade) fetchFileAndChmod(ctx context.Context, remotePath, localPath string, mode os.FileMode) error {
+func (c *ClientFacade) fetchFileAndChmod(ctx context.Context, remotePath, localPath string, fi os.FileInfo) error {
 	stream, err := c.client.FetchFile(ctx, &rpc.FetchFileRequest{
 		Path:    remotePath,
 		BufSize: int32(c.bufSize),
@@ -102,7 +102,7 @@ func (c *ClientFacade) fetchFileAndChmod(ctx context.Context, remotePath, localP
 			return err
 		}
 	}
-	err = file.Chmod(mode.Perm())
+	err = file.Chmod(fi.Mode().Perm())
 	if err != nil {
 		return err
 	}
@@ -175,10 +175,10 @@ func (c *ClientFacade) FetchDir(ctx context.Context, remotePath, localPath strin
 	if err != nil {
 		return err
 	}
-	return c.fetchDirAndChmod(ctx, remotePath, localPath, fi.Mode())
+	return c.fetchDirAndChmod(ctx, remotePath, localPath, fi)
 }
 
-func (c *ClientFacade) fetchDirAndChmod(ctx context.Context, remotePath, localPath string, mode os.FileMode) error {
+func (c *ClientFacade) fetchDirAndChmod(ctx context.Context, remotePath, localPath string, fi os.FileInfo) error {
 	remoteInfos, err := c.ReadDir(ctx, remotePath)
 	if err != nil {
 		return err
@@ -233,7 +233,7 @@ func (c *ClientFacade) fetchDirAndChmod(ctx context.Context, remotePath, localPa
 			err = c.fetchDirAndChmod(ctx,
 				filepath.Join(remotePath, rfi.Name()),
 				filepath.Join(localPath, rfi.Name()),
-				rfi.Mode())
+				rfi)
 			if err != nil {
 				return err
 			}
@@ -241,7 +241,7 @@ func (c *ClientFacade) fetchDirAndChmod(ctx context.Context, remotePath, localPa
 			err = c.fetchFileAndChmod(ctx,
 				filepath.Join(remotePath, rfi.Name()),
 				filepath.Join(localPath, rfi.Name()),
-				rfi.Mode())
+				rfi)
 			if err != nil {
 				return err
 			}
@@ -259,7 +259,7 @@ func (c *ClientFacade) fetchDirAndChmod(ctx context.Context, remotePath, localPa
 		}
 	}
 
-	err = os.Chmod(localPath, mode.Perm())
+	err = os.Chmod(localPath, fi.Mode().Perm())
 	if err != nil {
 		return err
 	}
@@ -272,10 +272,10 @@ func (c *ClientFacade) SendFile(ctx context.Context, localPath, remotePath strin
 	if err != nil {
 		return err
 	}
-	return c.sendFileAndChmod(ctx, localPath, remotePath, fi.Mode())
+	return c.sendFileAndChmod(ctx, localPath, remotePath, fi)
 }
 
-func (c *ClientFacade) sendFileAndChmod(ctx context.Context, localPath, remotePath string, mode os.FileMode) error {
+func (c *ClientFacade) sendFileAndChmod(ctx context.Context, localPath, remotePath string, fi os.FileInfo) error {
 	file, err := os.Open(localPath)
 	if err != nil {
 		return err
@@ -288,7 +288,7 @@ func (c *ClientFacade) sendFileAndChmod(ctx context.Context, localPath, remotePa
 	}
 	err = stream.Send(&rpc.SendFileRequest{
 		Path: remotePath,
-		Mode: int32(mode.Perm()),
+		Mode: int32(fi.Mode().Perm()),
 	})
 	if err != nil {
 		return err
@@ -336,10 +336,10 @@ func (c *ClientFacade) SendDir(ctx context.Context, localPath, remotePath string
 	if err != nil {
 		return err
 	}
-	return c.sendDirAndChmod(ctx, localPath, remotePath, fi.Mode())
+	return c.sendDirAndChmod(ctx, localPath, remotePath, fi)
 }
 
-func (c *ClientFacade) sendDirAndChmod(ctx context.Context, localPath, remotePath string, mode os.FileMode) error {
+func (c *ClientFacade) sendDirAndChmod(ctx context.Context, localPath, remotePath string, fi os.FileInfo) error {
 	err := c.ensureDirExists(ctx, remotePath)
 	if err != nil {
 		return err
@@ -394,7 +394,7 @@ func (c *ClientFacade) sendDirAndChmod(ctx context.Context, localPath, remotePat
 			err = c.sendDirAndChmod(ctx,
 				filepath.Join(localPath, lfi.Name()),
 				filepath.Join(remotePath, lfi.Name()),
-				lfi.Mode())
+				lfi)
 			if err != nil {
 				return err
 			}
@@ -402,7 +402,7 @@ func (c *ClientFacade) sendDirAndChmod(ctx context.Context, localPath, remotePat
 			err = c.sendFileAndChmod(ctx,
 				filepath.Join(localPath, lfi.Name()),
 				filepath.Join(remotePath, lfi.Name()),
-				lfi.Mode())
+				lfi)
 			if err != nil {
 				return err
 			}
@@ -422,7 +422,7 @@ func (c *ClientFacade) sendDirAndChmod(ctx context.Context, localPath, remotePat
 
 	_, err = c.client.Chmod(ctx, &rpc.ChmodRequest{
 		Path: remotePath,
-		Mode: int32(mode),
+		Mode: int32(fi.Mode()),
 	})
 	if err != nil {
 		return err
