@@ -9,20 +9,20 @@ import (
 
 	context "golang.org/x/net/context"
 
-	"github.com/hnakamur/rdirsync/rpc"
+	"github.com/hnakamur/rdirsync/pb"
 )
 
 type server struct{}
 
 func RegisterNewRDirSyncServer(s *grpc.Server) {
-	rpc.RegisterRDirSyncServer(s, newServer())
+	pb.RegisterRDirSyncServer(s, newServer())
 }
 
-func newServer() rpc.RDirSyncServer {
+func newServer() pb.RDirSyncServer {
 	return new(server)
 }
 
-func (s *server) Stat(ctx context.Context, req *rpc.StatRequest) (*rpc.FileInfo, error) {
+func (s *server) Stat(ctx context.Context, req *pb.StatRequest) (*pb.FileInfo, error) {
 	fi, err := os.Stat(req.Path)
 	if err != nil {
 		return nil, err
@@ -31,7 +31,7 @@ func (s *server) Stat(ctx context.Context, req *rpc.StatRequest) (*rpc.FileInfo,
 	return info, nil
 }
 
-func (s *server) FetchFile(req *rpc.FetchFileRequest, stream rpc.RDirSync_FetchFileServer) error {
+func (s *server) FetchFile(req *pb.FetchFileRequest, stream pb.RDirSync_FetchFileServer) error {
 	file, err := os.Open(req.Path)
 	if err != nil {
 		return err
@@ -50,7 +50,7 @@ func (s *server) FetchFile(req *rpc.FetchFileRequest, stream rpc.RDirSync_FetchF
 			return err
 		}
 
-		err = stream.Send(&rpc.FileChunk{Chunk: buf})
+		err = stream.Send(&pb.FileChunk{Chunk: buf})
 		if err != nil {
 			return err
 		}
@@ -59,7 +59,7 @@ func (s *server) FetchFile(req *rpc.FetchFileRequest, stream rpc.RDirSync_FetchF
 	return nil
 }
 
-func (s *server) ReadDir(req *rpc.ReadDirRequest, stream rpc.RDirSync_ReadDirServer) error {
+func (s *server) ReadDir(req *pb.ReadDirRequest, stream pb.RDirSync_ReadDirServer) error {
 	file, err := os.Open(req.Path)
 	if err != nil {
 		return err
@@ -76,7 +76,7 @@ func (s *server) ReadDir(req *rpc.ReadDirRequest, stream rpc.RDirSync_ReadDirSer
 		}
 
 		infos := newFileInfosFromOS(selectDirAndRegularFiles(osFileInfos))
-		err = stream.Send(&rpc.FileInfos{Infos: infos})
+		err = stream.Send(&pb.FileInfos{Infos: infos})
 		if err != nil {
 			return err
 		}
@@ -85,27 +85,27 @@ func (s *server) ReadDir(req *rpc.ReadDirRequest, stream rpc.RDirSync_ReadDirSer
 	return nil
 }
 
-func (s *server) Chmod(ctx context.Context, req *rpc.ChmodRequest) (*rpc.Empty, error) {
+func (s *server) Chmod(ctx context.Context, req *pb.ChmodRequest) (*pb.Empty, error) {
 	err := os.Chmod(req.Path, os.FileMode(req.Mode).Perm())
-	return new(rpc.Empty), err
+	return new(pb.Empty), err
 }
 
-func (s *server) Chtimes(ctx context.Context, req *rpc.ChtimesRequest) (*rpc.Empty, error) {
+func (s *server) Chtimes(ctx context.Context, req *pb.ChtimesRequest) (*pb.Empty, error) {
 	err := os.Chtimes(req.Path, time.Unix(req.Atime, 0), time.Unix(req.Mtime, 0))
-	return new(rpc.Empty), err
+	return new(pb.Empty), err
 }
 
-func (s *server) EnsureDirExists(ctx context.Context, req *rpc.EnsureDirExistsRequest) (*rpc.Empty, error) {
+func (s *server) EnsureDirExists(ctx context.Context, req *pb.EnsureDirExistsRequest) (*pb.Empty, error) {
 	err := ensureDirExists(req.Path, 0777)
-	return new(rpc.Empty), err
+	return new(pb.Empty), err
 }
 
-func (s *server) EnsureNotExist(ctx context.Context, req *rpc.EnsureNotExistRequest) (*rpc.Empty, error) {
+func (s *server) EnsureNotExist(ctx context.Context, req *pb.EnsureNotExistRequest) (*pb.Empty, error) {
 	err := ensureNotExist(req.Path, nil)
-	return new(rpc.Empty), err
+	return new(pb.Empty), err
 }
 
-func (s *server) SendFile(stream rpc.RDirSync_SendFileServer) error {
+func (s *server) SendFile(stream pb.RDirSync_SendFileServer) error {
 	var file *os.File
 	for {
 		chunk, err := stream.Recv()
@@ -145,19 +145,19 @@ func (s *server) SendFile(stream rpc.RDirSync_SendFileServer) error {
 			}
 		}
 	}
-	return stream.SendAndClose(new(rpc.Empty))
+	return stream.SendAndClose(new(pb.Empty))
 }
 
-func newFileInfosFromOS(fis []os.FileInfo) []*rpc.FileInfo {
-	infos := make([]*rpc.FileInfo, 0, len(fis))
+func newFileInfosFromOS(fis []os.FileInfo) []*pb.FileInfo {
+	infos := make([]*pb.FileInfo, 0, len(fis))
 	for _, fi := range fis {
 		infos = append(infos, newFileInfoFromOS(fi))
 	}
 	return infos
 }
 
-func newFileInfoFromOS(fi os.FileInfo) *rpc.FileInfo {
-	return &rpc.FileInfo{
+func newFileInfoFromOS(fi os.FileInfo) *pb.FileInfo {
+	return &pb.FileInfo{
 		Name:    fi.Name(),
 		Size:    fi.Size(),
 		Mode:    int32(fi.Mode()),
