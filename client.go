@@ -38,7 +38,7 @@ func SetBufSize(bufSize int) func(*Client) {
 	}
 }
 
-func SetMaxEntriesPerRPC(maxEntriesPerRPC int) func(*Client) {
+func SetMaxEntriesPerReadDirRPC(maxEntriesPerRPC int) func(*Client) {
 	return func(c *Client) {
 		c.atMostCount = maxEntriesPerRPC
 	}

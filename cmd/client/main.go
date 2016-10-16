@@ -61,7 +61,7 @@ func main() {
 	}
 	defer conn.Close()
 	client := rdirsync.NewClient(conn,
-		rdirsync.SetMaxEntriesPerRPC(atMostCount),
+		rdirsync.SetMaxEntriesPerReadDirRPC(atMostCount),
 		rdirsync.SetKeepDeletedFiles(keepDeletedFiles),
 		rdirsync.SetSyncModTime(syncModTime),
 	)
