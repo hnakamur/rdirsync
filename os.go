@@ -60,7 +60,16 @@ func ensureNotExist(path string, fi os.FileInfo) error {
 	if fi.IsDir() {
 		return os.RemoveAll(path)
 	} else {
-		return os.Remove(path)
+		err = os.Remove(path)
+		if os.IsPermission(err) {
+			err = makeReadWritable(path)
+			if err != nil {
+				return err
+			}
+			return os.Remove(path)
+		} else {
+			return err
+		}
 	}
 }
 
