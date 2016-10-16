@@ -59,15 +59,18 @@ func main() {
 
 	conn, err := grpc.Dial(serverAddr, opts...)
 	if err != nil {
-		log.Fatalf("fail to dial: %v", err)
+		log.Fatalf("fail to dial: %+v", err)
 	}
 	defer conn.Close()
-	client := rdirsync.NewClient(conn,
+	client, err := rdirsync.NewClient(conn,
 		rdirsync.SetMaxEntriesPerReadDirRPC(atMostCount),
 		rdirsync.SetKeepDeletedFiles(keepDeletedFiles),
 		rdirsync.SetSyncModTime(syncModTime),
 		rdirsync.SetUpdateOnly(updateOnly),
 	)
+	if err != nil {
+		log.Fatalf("fail to create client: %+v", err)
+	}
 	ctx := context.Background()
 	switch command {
 	case "fetch":

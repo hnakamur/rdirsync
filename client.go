@@ -2,6 +2,7 @@ package rdirsync
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -20,7 +21,9 @@ type Client struct {
 	updateOnly       bool
 }
 
-func NewClient(cc *grpc.ClientConn, option ...func(*Client)) *Client {
+type ClientOptionFunc func(*Client) error
+
+func NewClient(cc *grpc.ClientConn, option ...ClientOptionFunc) (*Client, error) {
 	c := &Client{
 		client:      pb.NewRDirSyncClient(cc),
 		bufSize:     64 * 1024,
@@ -28,38 +31,52 @@ func NewClient(cc *grpc.ClientConn, option ...func(*Client)) *Client {
 	}
 
 	for _, opt := range option {
-		opt(c)
+		err := opt(c)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return c
+	return c, nil
 }
 
-func SetBufSize(bufSize int) func(*Client) {
-	return func(c *Client) {
+func SetBufSize(bufSize int) ClientOptionFunc {
+	return func(c *Client) error {
+		if bufSize < 0 {
+			return errors.New("buffer size must be positive")
+		}
 		c.bufSize = bufSize
+		return nil
 	}
 }
 
-func SetMaxEntriesPerReadDirRPC(maxEntriesPerRPC int) func(*Client) {
-	return func(c *Client) {
+func SetMaxEntriesPerReadDirRPC(maxEntriesPerRPC int) ClientOptionFunc {
+	return func(c *Client) error {
+		if maxEntriesPerRPC < 0 {
+			return errors.New("max entries per RPC must be positive")
+		}
 		c.atMostCount = maxEntriesPerRPC
+		return nil
 	}
 }
 
-func SetKeepDeletedFiles(keepDeletedFiles bool) func(*Client) {
-	return func(c *Client) {
+func SetKeepDeletedFiles(keepDeletedFiles bool) ClientOptionFunc {
+	return func(c *Client) error {
 		c.keepDeletedFiles = keepDeletedFiles
+		return nil
 	}
 }
 
-func SetSyncModTime(syncModTime bool) func(*Client) {
-	return func(c *Client) {
+func SetSyncModTime(syncModTime bool) ClientOptionFunc {
+	return func(c *Client) error {
 		c.syncModTime = syncModTime
+		return nil
 	}
 }
 
-func SetUpdateOnly(updateOnly bool) func(*Client) {
-	return func(c *Client) {
+func SetUpdateOnly(updateOnly bool) ClientOptionFunc {
+	return func(c *Client) error {
 		c.updateOnly = updateOnly
+		return nil
 	}
 }
 
