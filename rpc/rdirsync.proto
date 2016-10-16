@@ -74,7 +74,6 @@ message EnsureDirExistsRequest {
 
 message SendFileRequest {
   string path = 1;
-  int32 mode = 2;
   bytes chunk = 3;
 }
 

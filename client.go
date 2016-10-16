@@ -64,15 +64,6 @@ func (c *ClientFacade) stat(ctx context.Context, remotePath string) (os.FileInfo
 	return newFileInfoFromRPC(info), nil
 }
 
-func (c *ClientFacade) chtimes(ctx context.Context, remotePath string, atime, mtime time.Time) error {
-	_, err := c.client.Chtimes(ctx,
-		&rpc.ChtimesRequest{
-			Path:  remotePath,
-			Atime: atime.Unix(),
-			Mtime: mtime.Unix()})
-	return err
-}
-
 func (c *ClientFacade) FetchFile(ctx context.Context, remotePath, localPath string) error {
 	fi, err := c.stat(ctx, remotePath)
 	if err != nil {
@@ -130,6 +121,23 @@ func (c *ClientFacade) fetchFileAndChmod(ctx context.Context, remotePath, localP
 		}
 	}
 	return nil
+}
+
+func (c *ClientFacade) chmod(ctx context.Context, remotePath string, mode os.FileMode) error {
+	_, err := c.client.Chmod(ctx,
+		&rpc.ChmodRequest{
+			Path: remotePath,
+			Mode: int32(mode.Perm())})
+	return err
+}
+
+func (c *ClientFacade) chtimes(ctx context.Context, remotePath string, atime, mtime time.Time) error {
+	_, err := c.client.Chtimes(ctx,
+		&rpc.ChtimesRequest{
+			Path:  remotePath,
+			Atime: atime.Unix(),
+			Mtime: mtime.Unix()})
+	return err
 }
 
 func (c *ClientFacade) ReadDir(ctx context.Context, remotePath string) ([]os.FileInfo, error) {
@@ -312,10 +320,7 @@ func (c *ClientFacade) sendFileAndChmod(ctx context.Context, localPath, remotePa
 	if err != nil {
 		return err
 	}
-	err = stream.Send(&rpc.SendFileRequest{
-		Path: remotePath,
-		Mode: int32(fi.Mode().Perm()),
-	})
+	err = stream.Send(&rpc.SendFileRequest{Path: remotePath})
 	if err != nil {
 		return err
 	}
@@ -344,6 +349,11 @@ func (c *ClientFacade) sendFileAndChmod(ctx context.Context, localPath, remotePa
 		return err
 	} else if err2 != nil {
 		return err2
+	}
+
+	err = c.chmod(ctx, remotePath, fi.Mode())
+	if err != nil {
+		return err
 	}
 	if c.syncModTime {
 		err = c.chtimes(ctx, remotePath, time.Now(), fi.ModTime())
@@ -451,10 +461,7 @@ func (c *ClientFacade) sendDirAndChmod(ctx context.Context, localPath, remotePat
 		}
 	}
 
-	_, err = c.client.Chmod(ctx, &rpc.ChmodRequest{
-		Path: remotePath,
-		Mode: int32(fi.Mode()),
-	})
+	err = c.chmod(ctx, remotePath, fi.Mode())
 	if err != nil {
 		return err
 	}
