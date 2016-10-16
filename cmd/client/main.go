@@ -30,6 +30,8 @@ func main() {
 	flag.IntVar(&atMostCount, "at-most-count", 16, "at most file info count per rpc")
 	var keepDeletedFiles bool
 	flag.BoolVar(&keepDeletedFiles, "keep-deleted-files", false, "wether or not keep deleted files")
+	var syncModTime bool
+	flag.BoolVar(&syncModTime, "sync-mod-time", false, "sync modification time")
 	flag.Parse()
 
 	var opts []grpc.DialOption
@@ -60,7 +62,9 @@ func main() {
 	defer conn.Close()
 	client := rdirsync.NewClientFacade(conn,
 		rdirsync.SetMaxEntriesPerRPC(atMostCount),
-		rdirsync.SetKeepDeletedFiles(keepDeletedFiles))
+		rdirsync.SetKeepDeletedFiles(keepDeletedFiles),
+		rdirsync.SetSyncModTime(syncModTime),
+	)
 	ctx := context.Background()
 	switch command {
 	case "fetch":

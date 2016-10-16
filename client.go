@@ -16,6 +16,7 @@ type ClientFacade struct {
 	bufSize          int
 	atMostCount      int
 	keepDeletedFiles bool
+	syncModTime      bool
 }
 
 func NewClientFacade(cc *grpc.ClientConn, option ...func(*ClientFacade)) *ClientFacade {
@@ -49,12 +50,27 @@ func SetKeepDeletedFiles(keepDeletedFiles bool) func(*ClientFacade) {
 	}
 }
 
+func SetSyncModTime(syncModTime bool) func(*ClientFacade) {
+	return func(c *ClientFacade) {
+		c.syncModTime = syncModTime
+	}
+}
+
 func (c *ClientFacade) stat(ctx context.Context, remotePath string) (os.FileInfo, error) {
 	info, err := c.client.Stat(ctx, &rpc.StatRequest{Path: remotePath})
 	if err != nil {
 		return nil, err
 	}
 	return newFileInfoFromRPC(info), nil
+}
+
+func (c *ClientFacade) chtimes(ctx context.Context, remotePath string, atime, mtime time.Time) error {
+	_, err := c.client.Chtimes(ctx,
+		&rpc.ChtimesRequest{
+			Path:  remotePath,
+			Atime: atime.Unix(),
+			Mtime: mtime.Unix()})
+	return err
 }
 
 func (c *ClientFacade) FetchFile(ctx context.Context, remotePath, localPath string) error {
@@ -102,9 +118,16 @@ func (c *ClientFacade) fetchFileAndChmod(ctx context.Context, remotePath, localP
 			return err
 		}
 	}
+
 	err = file.Chmod(fi.Mode().Perm())
 	if err != nil {
 		return err
+	}
+	if c.syncModTime {
+		err = os.Chtimes(localPath, time.Now(), fi.ModTime())
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -211,9 +234,7 @@ func (c *ClientFacade) fetchDirAndChmod(ctx context.Context, remotePath, localPa
 			lfi := localInfos[li]
 			li++
 			if rfi.IsDir() {
-				if lfi.IsDir() {
-					continue
-				} else {
+				if !lfi.IsDir() {
 					err = os.Remove(filepath.Join(localPath, lfi.Name()))
 					if err != nil {
 						return err
@@ -263,7 +284,12 @@ func (c *ClientFacade) fetchDirAndChmod(ctx context.Context, remotePath, localPa
 	if err != nil {
 		return err
 	}
-
+	if c.syncModTime {
+		err = os.Chtimes(localPath, time.Now(), fi.ModTime())
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -316,9 +342,16 @@ func (c *ClientFacade) sendFileAndChmod(ctx context.Context, localPath, remotePa
 	_, err2 := stream.CloseAndRecv()
 	if err != nil {
 		return err
-	} else {
+	} else if err2 != nil {
 		return err2
 	}
+	if c.syncModTime {
+		err = c.chtimes(ctx, remotePath, time.Now(), fi.ModTime())
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *ClientFacade) ensureDirExists(ctx context.Context, remotePath string) error {
@@ -372,9 +405,7 @@ func (c *ClientFacade) sendDirAndChmod(ctx context.Context, localPath, remotePat
 			rfi := remoteInfos[ri]
 			ri++
 			if lfi.IsDir() {
-				if rfi.IsDir() {
-					continue
-				} else {
+				if !rfi.IsDir() {
 					err = c.ensureNotExist(ctx, filepath.Join(remotePath, rfi.Name()))
 					if err != nil {
 						return err
@@ -427,7 +458,12 @@ func (c *ClientFacade) sendDirAndChmod(ctx context.Context, localPath, remotePat
 	if err != nil {
 		return err
 	}
-
+	if c.syncModTime {
+		err = c.chtimes(ctx, remotePath, time.Now(), fi.ModTime())
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

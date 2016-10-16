@@ -3,6 +3,7 @@ package rdirsync
 import (
 	"io"
 	"os"
+	"time"
 
 	context "golang.org/x/net/context"
 
@@ -80,6 +81,11 @@ func (s *server) ReadDir(req *rpc.ReadDirRequest, stream rpc.RDirSync_ReadDirSer
 
 func (s *server) Chmod(ctx context.Context, req *rpc.ChmodRequest) (*rpc.Empty, error) {
 	err := os.Chmod(req.Path, os.FileMode(req.Mode).Perm())
+	return new(rpc.Empty), err
+}
+
+func (s *server) Chtimes(ctx context.Context, req *rpc.ChtimesRequest) (*rpc.Empty, error) {
+	err := os.Chtimes(req.Path, time.Unix(req.Atime, 0), time.Unix(req.Mtime, 0))
 	return new(rpc.Empty), err
 }
 
