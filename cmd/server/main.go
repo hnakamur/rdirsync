@@ -4,8 +4,8 @@ import (
 	"flag"
 	"net"
 
-	"bitbucket.org/hnakamur/rdirsync"
-	"bitbucket.org/hnakamur/rdirsync/rpc"
+	"github.com/hnakamur/rdirsync"
+	"github.com/hnakamur/rdirsync/rpc"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"

@@ -5,7 +5,7 @@ import (
 	"flag"
 	"log"
 
-	"bitbucket.org/hnakamur/rdirsync"
+	"github.com/hnakamur/rdirsync"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -21,9 +21,9 @@ func main() {
 	var serverAddr string
 	flag.StringVar(&serverAddr, "server-addr", "127.0.0.1:10000", "server listen address")
 	var command string
-	flag.StringVar(&command, "command", "fetch", "operation: one of fetch, readdir, fetchdir, send, senddir, makereadwritable")
+	flag.StringVar(&command, "command", "fetch", "operation: one of fetch, fetchdir, send, senddir")
 	var remotePath string
-	flag.StringVar(&remotePath, "remote-path", "/home/hnakamur/gocode/src/bitbucket.org/hnakamur/rdirsync/rpc/rdirsync.proto", "file path to fetch")
+	flag.StringVar(&remotePath, "remote-path", "/home/hnakamur/gocode/src/github.com/hnakamur/rdirsync/rpc/rdirsync.proto", "file path to fetch")
 	var localPath string
 	flag.StringVar(&localPath, "local-path", "rdirsync.proto", "file path to save")
 	var atMostCount int
@@ -72,14 +72,6 @@ func main() {
 		if err != nil {
 			log.Fatalf("failed to fetch file; %s", err)
 		}
-	case "readdir":
-		infos, err := client.ReadDir(ctx, remotePath)
-		if err != nil {
-			log.Fatalf("failed to read directory; %s", err)
-		}
-		for _, info := range infos {
-			log.Printf("info=%+v", info)
-		}
 	case "fetchdir":
 		err := client.FetchDir(ctx, remotePath, localPath)
 		if err != nil {
@@ -94,11 +86,6 @@ func main() {
 		err := client.SendDir(ctx, localPath, remotePath)
 		if err != nil {
 			log.Fatalf("failed to send directory; %s", err)
-		}
-	case "makewritable":
-		err := client.MakeReadWritable(localPath)
-		if err != nil {
-			log.Fatalf("failed to make writable; %s", err)
 		}
 	default:
 		log.Fatalf("Unsupported command: %s", command)

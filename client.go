@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"bitbucket.org/hnakamur/rdirsync/rpc"
+	"github.com/hnakamur/rdirsync/rpc"
 	"google.golang.org/grpc"
 )
 
@@ -140,7 +140,7 @@ func (c *ClientFacade) chtimes(ctx context.Context, remotePath string, atime, mt
 	return err
 }
 
-func (c *ClientFacade) ReadDir(ctx context.Context, remotePath string) ([]os.FileInfo, error) {
+func (c *ClientFacade) readDir(ctx context.Context, remotePath string) ([]os.FileInfo, error) {
 	stream, err := c.client.ReadDir(ctx, &rpc.ReadDirRequest{
 		Path:        remotePath,
 		AtMostCount: int32(c.atMostCount),
@@ -210,7 +210,7 @@ func (c *ClientFacade) FetchDir(ctx context.Context, remotePath, localPath strin
 }
 
 func (c *ClientFacade) fetchDirAndChmod(ctx context.Context, remotePath, localPath string, fi os.FileInfo) error {
-	remoteInfos, err := c.ReadDir(ctx, remotePath)
+	remoteInfos, err := c.readDir(ctx, remotePath)
 	if err != nil {
 		return err
 	}
@@ -379,7 +379,7 @@ func (c *ClientFacade) sendDirAndChmod(ctx context.Context, localPath, remotePat
 		return err
 	}
 
-	remoteInfos, err := c.ReadDir(ctx, remotePath)
+	remoteInfos, err := c.readDir(ctx, remotePath)
 	if err != nil {
 		return err
 	}
@@ -454,8 +454,4 @@ func (c *ClientFacade) sendDirAndChmod(ctx context.Context, localPath, remotePat
 		}
 	}
 	return nil
-}
-
-func (c *ClientFacade) MakeReadWritable(path string) error {
-	return makeReadWritable(path)
 }

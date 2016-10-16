@@ -7,7 +7,7 @@ import (
 
 	context "golang.org/x/net/context"
 
-	"bitbucket.org/hnakamur/rdirsync/rpc"
+	"github.com/hnakamur/rdirsync/rpc"
 )
 
 type server struct{}
