@@ -10,6 +10,29 @@ import (
 )
 
 func makeReadWritable(path string) error {
+	err := makeReadWritableParentDir(path)
+	if err != nil {
+		return err
+	}
+
+	return makeReadWritableOneEntry(path)
+}
+
+func makeReadWritableRecursive(path string) error {
+	err := makeReadWritableParentDir(path)
+	if err != nil {
+		return err
+	}
+
+	return filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		return makeReadWritableOneEntry(path)
+	})
+}
+
+func makeReadWritableParentDir(path string) error {
 	dir := filepath.Dir(path)
 	fi, err := os.Stat(dir)
 	if err != nil && !os.IsPermission(err) {
@@ -37,19 +60,25 @@ func makeReadWritable(path string) error {
 			return err
 		}
 	}
+	return nil
+}
 
-	fi, err = os.Stat(path)
+func makeReadWritableOneEntry(path string) error {
+	fi, err := os.Stat(path)
 	if os.IsNotExist(err) {
 		return nil
 	} else if err != nil && !os.IsPermission(err) {
 		return err
 	}
-	mode = fi.Mode().Perm()
+	mode := fi.Mode().Perm()
 
-	sys, ok = fi.Sys().(*syscall.Stat_t)
+	sys, ok := fi.Sys().(*syscall.Stat_t)
 	if !ok {
 		return errors.New("cannot cast file info to syscall.Stat_t")
 	}
+
+	myUid := uint32(os.Getuid())
+	myGid := uint32(os.Getgid())
 	if fi.IsDir() {
 		if sys.Uid == myUid {
 			mode |= 0700

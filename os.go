@@ -58,18 +58,28 @@ func ensureNotExist(path string, fi os.FileInfo) error {
 		}
 	}
 	if fi.IsDir() {
+		err = os.RemoveAll(path)
+		if !os.IsPermission(err) {
+			return err
+		}
+
+		err = makeReadWritableRecursive(path)
+		if err != nil {
+			return err
+		}
+
 		return os.RemoveAll(path)
 	} else {
 		err = os.Remove(path)
-		if os.IsPermission(err) {
-			err = makeReadWritable(path)
-			if err != nil {
-				return err
-			}
-			return os.Remove(path)
-		} else {
+		if !os.IsPermission(err) {
 			return err
 		}
+
+		err = makeReadWritable(path)
+		if err != nil {
+			return err
+		}
+		return os.Remove(path)
 	}
 }
 
