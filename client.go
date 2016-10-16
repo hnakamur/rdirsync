@@ -241,19 +241,10 @@ func (c *ClientFacade) fetchDirAndChmod(ctx context.Context, remotePath, localPa
 		if li < len(localInfos) && localInfos[li].Name() == rfi.Name() {
 			lfi := localInfos[li]
 			li++
-			if rfi.IsDir() {
-				if !lfi.IsDir() {
-					err = os.Remove(filepath.Join(localPath, lfi.Name()))
-					if err != nil {
-						return err
-					}
-				}
-			} else {
-				if lfi.IsDir() {
-					err = os.RemoveAll(filepath.Join(localPath, lfi.Name()))
-					if err != nil {
-						return err
-					}
+			if lfi.IsDir() != rfi.IsDir() {
+				err = ensureNotExist(filepath.Join(localPath, lfi.Name()), lfi)
+				if err != nil {
+					return err
 				}
 			}
 		}
@@ -414,19 +405,10 @@ func (c *ClientFacade) sendDirAndChmod(ctx context.Context, localPath, remotePat
 		for ri < len(remoteInfos) && remoteInfos[ri].Name() == lfi.Name() {
 			rfi := remoteInfos[ri]
 			ri++
-			if lfi.IsDir() {
-				if !rfi.IsDir() {
-					err = c.ensureNotExist(ctx, filepath.Join(remotePath, rfi.Name()))
-					if err != nil {
-						return err
-					}
-				}
-			} else {
-				if rfi.IsDir() {
-					err = c.ensureNotExist(ctx, filepath.Join(remotePath, rfi.Name()))
-					if err != nil {
-						return err
-					}
+			if rfi.IsDir() != lfi.IsDir() {
+				err = c.ensureNotExist(ctx, filepath.Join(remotePath, rfi.Name()))
+				if err != nil {
+					return err
 				}
 			}
 		}
