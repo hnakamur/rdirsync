@@ -27,7 +27,9 @@ func main() {
 	var localPath string
 	flag.StringVar(&localPath, "local-path", "rdirsync.proto", "file path to save")
 	var atMostCount int
-	flag.IntVar(&atMostCount, "at-most-count", 16, "at most file info count")
+	flag.IntVar(&atMostCount, "at-most-count", 16, "at most file info count per rpc")
+	var keepDeletedFiles bool
+	flag.BoolVar(&keepDeletedFiles, "keep-deleted-files", false, "wether or not keep deleted files")
 	flag.Parse()
 
 	var opts []grpc.DialOption
@@ -56,7 +58,9 @@ func main() {
 		log.Fatalf("fail to dial: %v", err)
 	}
 	defer conn.Close()
-	client := rdirsync.NewClientFacade(conn, nil)
+	client := rdirsync.NewClientFacade(conn,
+		rdirsync.SetMaxEntriesPerRPC(atMostCount),
+		rdirsync.SetKeepDeletedFiles(keepDeletedFiles))
 	ctx := context.Background()
 	switch command {
 	case "fetch":

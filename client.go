@@ -11,12 +11,6 @@ import (
 	"google.golang.org/grpc"
 )
 
-type ClientFacadeConfig struct {
-	BufSize          int
-	MaxEntriesPerRPC int
-	KeepDeletedFiles bool
-}
-
 type ClientFacade struct {
 	client           rpc.RDirSyncClient
 	bufSize          int
@@ -24,31 +18,34 @@ type ClientFacade struct {
 	keepDeletedFiles bool
 }
 
-func NewClientFacade(cc *grpc.ClientConn, config *ClientFacadeConfig) *ClientFacade {
-	var bufSize int
-	if config != nil && config.BufSize > 0 {
-		bufSize = config.BufSize
-	} else {
-		bufSize = 64 * 1024
+func NewClientFacade(cc *grpc.ClientConn, option ...func(*ClientFacade)) *ClientFacade {
+	c := &ClientFacade{
+		client:      rpc.NewRDirSyncClient(cc),
+		bufSize:     64 * 1024,
+		atMostCount: 1024,
 	}
 
-	var atMostCount int
-	if config != nil && config.MaxEntriesPerRPC > 0 {
-		atMostCount = config.MaxEntriesPerRPC
-	} else {
-		atMostCount = 1024
+	for _, opt := range option {
+		opt(c)
 	}
+	return c
+}
 
-	var keepDeletedFiles bool
-	if config != nil {
-		keepDeletedFiles = config.KeepDeletedFiles
+func SetBufSize(bufSize int) func(*ClientFacade) {
+	return func(c *ClientFacade) {
+		c.bufSize = bufSize
 	}
+}
 
-	return &ClientFacade{
-		client:           rpc.NewRDirSyncClient(cc),
-		bufSize:          bufSize,
-		atMostCount:      atMostCount,
-		keepDeletedFiles: keepDeletedFiles,
+func SetMaxEntriesPerRPC(maxEntriesPerRPC int) func(*ClientFacade) {
+	return func(c *ClientFacade) {
+		c.atMostCount = maxEntriesPerRPC
+	}
+}
+
+func SetKeepDeletedFiles(keepDeletedFiles bool) func(*ClientFacade) {
+	return func(c *ClientFacade) {
+		c.keepDeletedFiles = keepDeletedFiles
 	}
 }
 
