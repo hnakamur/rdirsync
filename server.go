@@ -5,6 +5,8 @@ import (
 	"os"
 	"time"
 
+	"google.golang.org/grpc"
+
 	context "golang.org/x/net/context"
 
 	"github.com/hnakamur/rdirsync/rpc"
@@ -12,7 +14,11 @@ import (
 
 type server struct{}
 
-func NewServer() rpc.RDirSyncServer {
+func RegisterNewRDirSyncServer(s *grpc.Server) {
+	rpc.RegisterRDirSyncServer(s, newServer())
+}
+
+func newServer() rpc.RDirSyncServer {
 	return new(server)
 }
 

@@ -5,7 +5,6 @@ import (
 	"net"
 
 	"github.com/hnakamur/rdirsync"
-	"github.com/hnakamur/rdirsync/rpc"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -37,6 +36,6 @@ func main() {
 		opts = []grpc.ServerOption{grpc.Creds(creds)}
 	}
 	grpcServer := grpc.NewServer(opts...)
-	rpc.RegisterRDirSyncServer(grpcServer, rdirsync.NewServer())
+	rdirsync.RegisterNewRDirSyncServer(grpcServer)
 	grpcServer.Serve(lis)
 }
