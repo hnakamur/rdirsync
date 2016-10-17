@@ -8,24 +8,24 @@ import (
 
 type userGroupDB struct {
 	muUser       sync.Mutex
-	nameToUidMap map[string]int
-	uidToNameMap map[int]string
+	nameToUidMap map[string]uint32
+	uidToNameMap map[uint32]string
 
 	muGroup      sync.Mutex
-	nameToGidMap map[string]int
-	gidToNameMap map[int]string
+	nameToGidMap map[string]uint32
+	gidToNameMap map[uint32]string
 }
 
 func newUserGroupDB() *userGroupDB {
 	return &userGroupDB{
-		nameToUidMap: make(map[string]int),
-		uidToNameMap: make(map[int]string),
-		nameToGidMap: make(map[string]int),
-		gidToNameMap: make(map[int]string),
+		nameToUidMap: make(map[string]uint32),
+		uidToNameMap: make(map[uint32]string),
+		nameToGidMap: make(map[string]uint32),
+		gidToNameMap: make(map[uint32]string),
 	}
 }
 
-func (db *userGroupDB) LookupUser(name string) (int, error) {
+func (db *userGroupDB) LookupUser(name string) (uint32, error) {
 	db.muUser.Lock()
 	defer db.muUser.Unlock()
 
@@ -36,18 +36,18 @@ func (db *userGroupDB) LookupUser(name string) (int, error) {
 
 	user_, err := user.Lookup(name)
 	if err != nil {
-		return -1, err
+		return 0, err
 	}
-	uid, err = strconv.Atoi(user_.Uid)
+	uid, err = parseUint32(user_.Uid)
 	if err != nil {
-		return -1, err
+		return 0, err
 	}
 	db.cacheUser(uid, name)
 
 	return uid, nil
 }
 
-func (db *userGroupDB) LookupUid(uid int) (string, error) {
+func (db *userGroupDB) LookupUid(uid uint32) (string, error) {
 	db.muUser.Lock()
 	defer db.muUser.Unlock()
 
@@ -56,7 +56,7 @@ func (db *userGroupDB) LookupUid(uid int) (string, error) {
 		return name, nil
 	}
 
-	user_, err := user.LookupId(strconv.Itoa(uid))
+	user_, err := user.LookupId(formatUint32(uid))
 	if err != nil {
 		return "", err
 	}
@@ -66,12 +66,12 @@ func (db *userGroupDB) LookupUid(uid int) (string, error) {
 	return name, nil
 }
 
-func (db *userGroupDB) cacheUser(uid int, name string) {
+func (db *userGroupDB) cacheUser(uid uint32, name string) {
 	db.nameToUidMap[name] = uid
 	db.uidToNameMap[uid] = name
 }
 
-func (db *userGroupDB) LookupGroup(name string) (int, error) {
+func (db *userGroupDB) LookupGroup(name string) (uint32, error) {
 	db.muGroup.Lock()
 	defer db.muGroup.Unlock()
 
@@ -82,18 +82,18 @@ func (db *userGroupDB) LookupGroup(name string) (int, error) {
 
 	group, err := user.LookupGroup(name)
 	if err != nil {
-		return -1, err
+		return 0, err
 	}
-	gid, err = strconv.Atoi(group.Gid)
+	gid, err = parseUint32(group.Gid)
 	if err != nil {
-		return -1, err
+		return 0, err
 	}
 	db.cacheGroup(gid, name)
 
 	return gid, nil
 }
 
-func (db *userGroupDB) LookupGid(gid int) (string, error) {
+func (db *userGroupDB) LookupGid(gid uint32) (string, error) {
 	db.muGroup.Lock()
 	defer db.muGroup.Unlock()
 
@@ -102,7 +102,7 @@ func (db *userGroupDB) LookupGid(gid int) (string, error) {
 		return name, nil
 	}
 
-	group, err := user.LookupGroupId(strconv.Itoa(gid))
+	group, err := user.LookupGroupId(formatUint32(gid))
 	if err != nil {
 		return "", err
 	}
@@ -112,7 +112,16 @@ func (db *userGroupDB) LookupGid(gid int) (string, error) {
 	return name, nil
 }
 
-func (db *userGroupDB) cacheGroup(gid int, name string) {
+func (db *userGroupDB) cacheGroup(gid uint32, name string) {
 	db.nameToUidMap[name] = gid
 	db.uidToNameMap[gid] = name
+}
+
+func formatUint32(i uint32) string {
+	return strconv.FormatUint(uint64(i), 10)
+}
+
+func parseUint32(s string) (uint32, error) {
+	i, err := strconv.ParseUint(s, 10, 32)
+	return uint32(i), err
 }
