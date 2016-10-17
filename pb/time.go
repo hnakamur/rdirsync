@@ -9,6 +9,6 @@ func ConvertTimeFromPB(t *UnixTime) time.Time {
 func ConvertTimeToPB(t time.Time) *UnixTime {
 	return &UnixTime{
 		Second:     t.Unix(),
-		NanoSecond: t.UnixNano(),
+		NanoSecond: int64(t.Nanosecond()),
 	}
 }
