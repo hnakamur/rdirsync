@@ -24,20 +24,13 @@ service RDirSync {
 
 message StatRequest {
   string path = 1;
-}
-
-message FetchFileRequest {
-  string path = 1;
-  int32 bufSize = 2;
-}
-
-message FileChunk {
-  bytes chunk = 1;
+  bool wantsOwnerAndGroup = 2;
 }
 
 message ReadDirRequest {
   string path = 1;
   int32 atMostCount = 2;
+  bool wantsOwnerAndGroup = 3;
 }
 
 message FileInfos {
@@ -58,6 +51,22 @@ message UnixTime {
   int64 nanoSecond = 2;
 }
 
+message FetchFileRequest {
+  string path = 1;
+  int32 bufSize = 2;
+}
+
+message FileChunk {
+  bytes chunk = 1;
+}
+
+message SendFileRequest {
+  string path = 1;
+  bytes chunk = 3;
+}
+
+message Empty {}
+
 message ChmodRequest {
   string path = 1;
   int32 mode = 2;
@@ -73,14 +82,6 @@ message EnsureNotExistRequest {
   string path = 1;
 }
 
-message Empty {}
-
 message EnsureDirExistsRequest {
   string path = 1;
 }
-
-message SendFileRequest {
-  string path = 1;
-  bytes chunk = 3;
-}
-
