@@ -1,9 +1,6 @@
 package rdirsync
 
-import (
-	"os"
-	"sort"
-)
+import "os"
 
 func selectDirAndRegularFiles(fis []os.FileInfo) []os.FileInfo {
 	ret := make([]os.FileInfo, 0, len(fis))
@@ -13,16 +10,6 @@ func selectDirAndRegularFiles(fis []os.FileInfo) []os.FileInfo {
 		}
 	}
 	return ret
-}
-
-type osFileInfosByName []os.FileInfo
-
-func (a osFileInfosByName) Len() int           { return len(a) }
-func (a osFileInfosByName) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a osFileInfosByName) Less(i, j int) bool { return a[i].Name() < a[j].Name() }
-
-func sortFileInfosByName(infos []os.FileInfo) {
-	sort.Sort(osFileInfosByName(infos))
 }
 
 func ensureDirExists(path string, mode os.FileMode) error {
@@ -99,7 +86,7 @@ func ensureNotDir(path string, fi os.FileInfo) error {
 	return nil
 }
 
-func readLocalDir(path string) ([]os.FileInfo, error) {
+func readDir(path string) ([]os.FileInfo, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -110,6 +97,5 @@ func readLocalDir(path string) ([]os.FileInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	sortFileInfosByName(infos)
 	return infos, nil
 }

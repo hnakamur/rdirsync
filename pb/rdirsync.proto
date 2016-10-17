@@ -15,6 +15,7 @@ service RDirSync {
   rpc FetchFile(FetchFileRequest) returns (stream FileChunk) {}
   rpc SendFile(stream SendFileRequest) returns (Empty) {}
 
+  rpc Chown(ChownRequest) returns (Empty) {}
   rpc Chmod(ChmodRequest) returns (Empty) {}
   rpc Chtimes(ChtimesRequest) returns (Empty) {}
 
@@ -66,6 +67,12 @@ message SendFileRequest {
 }
 
 message Empty {}
+
+message ChownRequest {
+  string path = 1;
+  string owner = 2;
+  string group = 3;
+}
 
 message ChmodRequest {
   string path = 1;

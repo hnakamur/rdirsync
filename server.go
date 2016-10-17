@@ -3,6 +3,7 @@ package rdirsync
 import (
 	"io"
 	"os"
+	"syscall"
 
 	"google.golang.org/grpc"
 
@@ -11,14 +12,18 @@ import (
 	"github.com/hnakamur/rdirsync/pb"
 )
 
-type server struct{}
+type server struct {
+	userGroupDB *userGroupDB
+}
 
 func RegisterNewRDirSyncServer(s *grpc.Server) {
 	pb.RegisterRDirSyncServer(s, newServer())
 }
 
 func newServer() pb.RDirSyncServer {
-	return new(server)
+	return &server{
+		userGroupDB: newUserGroupDB(),
+	}
 }
 
 func (s *server) Stat(ctx context.Context, req *pb.StatRequest) (*pb.FileInfo, error) {
@@ -28,8 +33,7 @@ func (s *server) Stat(ctx context.Context, req *pb.StatRequest) (*pb.FileInfo, e
 	} else if err != nil {
 		return nil, err
 	}
-	info := newFileInfoFromOS(fi)
-	return info, nil
+	return s.newFileInfoFromOS(fi, req.WantsOwnerAndGroup)
 }
 
 func (s *server) FetchFile(req *pb.FetchFileRequest, stream pb.RDirSync_FetchFileServer) error {
@@ -76,7 +80,11 @@ func (s *server) ReadDir(req *pb.ReadDirRequest, stream pb.RDirSync_ReadDirServe
 			return err
 		}
 
-		infos := newFileInfosFromOS(selectDirAndRegularFiles(osFileInfos))
+		infos, err := s.newFileInfosFromOS(selectDirAndRegularFiles(osFileInfos),
+			req.WantsOwnerAndGroup)
+		if err != nil {
+			return err
+		}
 		err = stream.Send(&pb.FileInfos{Infos: infos})
 		if err != nil {
 			return err
@@ -84,6 +92,19 @@ func (s *server) ReadDir(req *pb.ReadDirRequest, stream pb.RDirSync_ReadDirServe
 	}
 
 	return nil
+}
+
+func (s *server) Chown(ctx context.Context, req *pb.ChownRequest) (*pb.Empty, error) {
+	uid, err := s.userGroupDB.LookupUser(req.Owner)
+	if err != nil {
+		return new(pb.Empty), err
+	}
+	gid, err := s.userGroupDB.LookupGroup(req.Group)
+	if err != nil {
+		return new(pb.Empty), err
+	}
+	err = os.Chown(req.Path, int(uid), int(gid))
+	return new(pb.Empty), err
 }
 
 func (s *server) Chmod(ctx context.Context, req *pb.ChmodRequest) (*pb.Empty, error) {
@@ -151,23 +172,43 @@ func (s *server) SendFile(stream pb.RDirSync_SendFileServer) error {
 	return stream.SendAndClose(new(pb.Empty))
 }
 
-func newFileInfosFromOS(fis []os.FileInfo) []*pb.FileInfo {
+func (s *server) newFileInfosFromOS(fis []os.FileInfo, wantsOwnerAndGroup bool) ([]*pb.FileInfo, error) {
 	infos := make([]*pb.FileInfo, 0, len(fis))
 	for _, fi := range fis {
-		infos = append(infos, newFileInfoFromOS(fi))
+		pbInfo, err := s.newFileInfoFromOS(fi, wantsOwnerAndGroup)
+		if err != nil {
+			return nil, err
+		}
+		infos = append(infos, pbInfo)
 	}
-	return infos
+	return infos, nil
 }
 
-func newFileInfoFromOS(fi os.FileInfo) *pb.FileInfo {
+func (s *server) newFileInfoFromOS(fi os.FileInfo, wantsOwnerAndGroup bool) (*pb.FileInfo, error) {
 	if fi == nil {
-		return new(pb.FileInfo)
+		return new(pb.FileInfo), nil
 	}
 
-	return &pb.FileInfo{
+	info := &pb.FileInfo{
 		Name:    fi.Name(),
 		Size:    fi.Size(),
 		Mode:    int32(fi.Mode()),
 		ModTime: pb.ConvertTimeToPB(fi.ModTime()),
 	}
+	if !wantsOwnerAndGroup {
+		return info, nil
+	}
+
+	sysInfo := fi.Sys().(*syscall.Stat_t)
+	owner, err := s.userGroupDB.LookupUid(sysInfo.Uid)
+	if err != nil {
+		return nil, err
+	}
+	group, err := s.userGroupDB.LookupGid(sysInfo.Gid)
+	if err != nil {
+		return nil, err
+	}
+	info.Owner = owner
+	info.Group = group
+	return info, nil
 }

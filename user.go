@@ -60,7 +60,7 @@ func (db *userGroupDB) LookupUid(uid uint32) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	name = user_.Name
+	name = user_.Username
 	db.cacheUser(uid, name)
 
 	return name, nil
