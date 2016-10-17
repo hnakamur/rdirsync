@@ -22,9 +22,9 @@ type Client struct {
 	updateOnly       bool
 }
 
-type ClientOptionFunc func(*Client) error
+type ClientOption func(*Client) error
 
-func NewClient(cc *grpc.ClientConn, option ...ClientOptionFunc) (*Client, error) {
+func NewClient(cc *grpc.ClientConn, option ...ClientOption) (*Client, error) {
 	c := &Client{
 		client:      pb.NewRDirSyncClient(cc),
 		bufSize:     64 * 1024,
@@ -40,7 +40,7 @@ func NewClient(cc *grpc.ClientConn, option ...ClientOptionFunc) (*Client, error)
 	return c, nil
 }
 
-func SetBufSize(bufSize int) ClientOptionFunc {
+func SetBufSize(bufSize int) ClientOption {
 	return func(c *Client) error {
 		if bufSize < 0 {
 			return errors.New("buffer size must be positive")
@@ -50,7 +50,7 @@ func SetBufSize(bufSize int) ClientOptionFunc {
 	}
 }
 
-func SetMaxEntriesPerReadDirRPC(maxEntriesPerRPC int) ClientOptionFunc {
+func SetMaxEntriesPerReadDirRPC(maxEntriesPerRPC int) ClientOption {
 	return func(c *Client) error {
 		if maxEntriesPerRPC < 0 {
 			return errors.New("max entries per RPC must be positive")
@@ -60,21 +60,21 @@ func SetMaxEntriesPerReadDirRPC(maxEntriesPerRPC int) ClientOptionFunc {
 	}
 }
 
-func SetKeepDeletedFiles(keepDeletedFiles bool) ClientOptionFunc {
+func SetKeepDeletedFiles(keepDeletedFiles bool) ClientOption {
 	return func(c *Client) error {
 		c.keepDeletedFiles = keepDeletedFiles
 		return nil
 	}
 }
 
-func SetSyncModTime(syncModTime bool) ClientOptionFunc {
+func SetSyncModTime(syncModTime bool) ClientOption {
 	return func(c *Client) error {
 		c.syncModTime = syncModTime
 		return nil
 	}
 }
 
-func SetUpdateOnly(updateOnly bool) ClientOptionFunc {
+func SetUpdateOnly(updateOnly bool) ClientOption {
 	return func(c *Client) error {
 		c.updateOnly = updateOnly
 		return nil

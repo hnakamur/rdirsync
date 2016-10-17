@@ -114,8 +114,8 @@ func (o *options) buildGrpcOptions() []grpc.DialOption {
 	return opts
 }
 
-func (o *options) buildRDirSyncClientOptions() []rdirsync.ClientOptionFunc {
-	return []rdirsync.ClientOptionFunc{
+func (o *options) buildRDirSyncClientOptions() []rdirsync.ClientOption {
+	return []rdirsync.ClientOption{
 		rdirsync.SetBufSize(o.bufSize),
 		rdirsync.SetMaxEntriesPerReadDirRPC(o.maxEntriesPerReadDirRPC),
 		rdirsync.SetKeepDeletedFiles(o.keepDeletedFiles),
