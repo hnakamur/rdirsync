@@ -3,6 +3,7 @@ package rdirsync
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -88,10 +89,33 @@ func (c *Client) stat(ctx context.Context, remotePath string) (os.FileInfo, erro
 	return newFileInfoFromRPC(info), nil
 }
 
+func (c *Client) Fetch(ctx context.Context, remotePath, localPath string) error {
+	rfi, err := c.stat(ctx, remotePath)
+	if err != nil {
+		return err
+	}
+
+	if rfi.IsDir() {
+		return c.fetchDirAndChmod(ctx, remotePath, localPath, rfi)
+	} else {
+		lfi, err := os.Stat(localPath)
+		if os.IsNotExist(err) {
+			lfi = nil
+		} else if err != nil {
+			return err
+		}
+		return c.fetchFileAndChmod(ctx, remotePath, localPath, rfi, lfi)
+	}
+}
+
 func (c *Client) FetchFile(ctx context.Context, remotePath, localPath string) error {
 	rfi, err := c.stat(ctx, remotePath)
 	if err != nil {
 		return err
+	}
+
+	if rfi.IsDir() {
+		return fmt.Errorf("expected a remote file but is a directory %q", remotePath)
 	}
 
 	lfi, err := os.Stat(localPath)
@@ -241,11 +265,16 @@ func newFileInfoFromRPC(info *pb.FileInfo) os.FileInfo {
 }
 
 func (c *Client) FetchDir(ctx context.Context, remotePath, localPath string) error {
-	fi, err := c.stat(ctx, remotePath)
+	rfi, err := c.stat(ctx, remotePath)
 	if err != nil {
 		return err
 	}
-	return c.fetchDirAndChmod(ctx, remotePath, localPath, fi)
+
+	if rfi.IsDir() {
+		return fmt.Errorf("expected a remote directory but is a file %q", remotePath)
+	}
+
+	return c.fetchDirAndChmod(ctx, remotePath, localPath, rfi)
 }
 
 func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath string, fi os.FileInfo) error {
@@ -333,12 +362,36 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 	return nil
 }
 
+func (c *Client) Send(ctx context.Context, localPath, remotePath string) error {
+	lfi, err := os.Stat(localPath)
+	if os.IsNotExist(err) {
+		lfi = nil
+	} else if err != nil {
+		return err
+	}
+
+	if lfi.IsDir() {
+		return c.sendDirAndChmod(ctx, localPath, remotePath, lfi)
+	} else {
+		rfi, err := c.stat(ctx, remotePath)
+		if err != nil {
+			return err
+		}
+
+		return c.sendFileAndChmod(ctx, localPath, remotePath, lfi, rfi)
+	}
+}
+
 func (c *Client) SendFile(ctx context.Context, localPath, remotePath string) error {
 	lfi, err := os.Stat(localPath)
 	if os.IsNotExist(err) {
 		lfi = nil
 	} else if err != nil {
 		return err
+	}
+
+	if lfi.IsDir() {
+		return fmt.Errorf("expected a local file but is a directory %q", localPath)
 	}
 
 	rfi, err := c.stat(ctx, remotePath)
@@ -419,11 +472,16 @@ func (c *Client) ensureNotExist(ctx context.Context, remotePath string) error {
 }
 
 func (c *Client) SendDir(ctx context.Context, localPath, remotePath string) error {
-	fi, err := os.Stat(localPath)
+	lfi, err := os.Stat(localPath)
 	if err != nil {
 		return err
 	}
-	return c.sendDirAndChmod(ctx, localPath, remotePath, fi)
+
+	if !lfi.IsDir() {
+		return fmt.Errorf("expected a local directory but is a file %q", localPath)
+	}
+
+	return c.sendDirAndChmod(ctx, localPath, remotePath, lfi)
 }
 
 func (c *Client) sendDirAndChmod(ctx context.Context, localPath, remotePath string, fi os.FileInfo) error {
