@@ -15,9 +15,9 @@ func main() {
 	var enableTLS bool
 	flag.BoolVar(&enableTLS, "enable-tls", false, "enable TLS")
 	var certFile string
-	flag.StringVar(&certFile, "cert-file", "../../ssl/server/server.crt", "TLS cert file")
+	flag.StringVar(&certFile, "cert-file", "server.crt", "TLS cert file")
 	var keyFile string
-	flag.StringVar(&keyFile, "key-file", "../../ssl/server/server.key", "TLS key file")
+	flag.StringVar(&keyFile, "key-file", "server.key", "TLS key file")
 	var addr string
 	flag.StringVar(&addr, "addr", ":10000", "server listen address")
 	flag.Parse()
