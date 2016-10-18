@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime/pprof"
 
 	"github.com/hnakamur/rdirsync"
 
@@ -69,6 +70,7 @@ type options struct {
 	syncModTime             bool
 	updateOnly              bool
 	workers                 int
+	cpuProfile              string
 }
 
 func parseOptions(subcommand, usage string, args []string) (*flag.FlagSet, *options) {
@@ -90,6 +92,7 @@ func parseOptions(subcommand, usage string, args []string) (*flag.FlagSet, *opti
 	fs.BoolVar(&opts.syncModTime, "t", false, "preserve modification times")
 	fs.BoolVar(&opts.updateOnly, "u", false, "skip files that are newer on the receiver")
 	fs.IntVar(&opts.workers, "workers", 4, "worker count")
+	fs.StringVar(&opts.cpuProfile, "cpuprofile", "", "write cpu profile to file")
 	fs.Parse(args)
 	return fs, &opts
 }
@@ -142,6 +145,15 @@ func handleFetchCommand(args []string) int {
 		return 1
 	}
 
+	if opts.cpuProfile != "" {
+		f, err := os.Create(opts.cpuProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
+
 	remotePath := fs.Arg(0)
 	localPath := fs.Arg(1)
 
@@ -178,6 +190,15 @@ func handleSendCommand(args []string) int {
 	if fs.NArg() != 2 {
 		fs.Usage()
 		return 1
+	}
+
+	if opts.cpuProfile != "" {
+		f, err := os.Create(opts.cpuProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
 	}
 
 	localPath := fs.Arg(0)
