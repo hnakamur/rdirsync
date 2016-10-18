@@ -15,6 +15,7 @@ service RDirSync {
   rpc FetchFile(FetchFileRequest) returns (stream FileChunk) {}
   rpc SendFile(stream SendFileRequest) returns (Empty) {}
 
+  rpc Chown(ChownRequest) returns (Empty) {}
   rpc Chmod(ChmodRequest) returns (Empty) {}
   rpc Chtimes(ChtimesRequest) returns (Empty) {}
 
@@ -24,20 +25,13 @@ service RDirSync {
 
 message StatRequest {
   string path = 1;
-}
-
-message FetchFileRequest {
-  string path = 1;
-  int32 bufSize = 2;
-}
-
-message FileChunk {
-  bytes chunk = 1;
+  bool wantsOwnerAndGroup = 2;
 }
 
 message ReadDirRequest {
   string path = 1;
   int32 atMostCount = 2;
+  bool wantsOwnerAndGroup = 3;
 }
 
 message FileInfos {
@@ -49,11 +43,35 @@ message FileInfo {
   int64 size = 2;
   int32 mode = 3;
   UnixTime modTime = 4;
+  string owner = 5;
+  string group = 6;
 }
 
 message UnixTime {
-  int64 Second = 1;
-  int64 NanoSecond = 2;
+  int64 second = 1;
+  int64 nanoSecond = 2;
+}
+
+message FetchFileRequest {
+  string path = 1;
+  int32 bufSize = 2;
+}
+
+message FileChunk {
+  bytes chunk = 1;
+}
+
+message SendFileRequest {
+  string path = 1;
+  bytes chunk = 3;
+}
+
+message Empty {}
+
+message ChownRequest {
+  string path = 1;
+  string owner = 2;
+  string group = 3;
 }
 
 message ChmodRequest {
@@ -71,14 +89,6 @@ message EnsureNotExistRequest {
   string path = 1;
 }
 
-message Empty {}
-
 message EnsureDirExistsRequest {
   string path = 1;
 }
-
-message SendFileRequest {
-  string path = 1;
-  bytes chunk = 3;
-}
-

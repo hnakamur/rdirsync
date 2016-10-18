@@ -65,6 +65,7 @@ type options struct {
 	bufSize                 int
 	maxEntriesPerReadDirRPC int
 	keepDeletedFiles        bool
+	syncOwnerAndGroup       bool
 	syncModTime             bool
 	updateOnly              bool
 }
@@ -84,6 +85,7 @@ func parseOptions(subcommand, usage string, args []string) (*flag.FlagSet, *opti
 	fs.IntVar(&opts.bufSize, "buf-size", 64*1024, "buffer size for reading a file")
 	fs.IntVar(&opts.maxEntriesPerReadDirRPC, "at-most-count", 1024, "at most file info count per readdir rpc")
 	fs.BoolVar(&opts.keepDeletedFiles, "keep-deleted-files", false, "wether or not keep deleted files")
+	fs.BoolVar(&opts.syncOwnerAndGroup, "sync-owner-and-group", false, "sync owner and group")
 	fs.BoolVar(&opts.syncModTime, "sync-mod-time", false, "sync modification time")
 	fs.BoolVar(&opts.updateOnly, "update-only", false, "skip update files whose size is the same and mod time is equal or newer")
 	fs.Parse(args)
@@ -119,6 +121,7 @@ func (o *options) buildRDirSyncClientOptions() []rdirsync.ClientOption {
 		rdirsync.SetBufSize(o.bufSize),
 		rdirsync.SetMaxEntriesPerReadDirRPC(o.maxEntriesPerReadDirRPC),
 		rdirsync.SetKeepDeletedFiles(o.keepDeletedFiles),
+		rdirsync.SetSyncOwnerAndGroup(o.syncOwnerAndGroup),
 		rdirsync.SetSyncModTime(o.syncModTime),
 		rdirsync.SetUpdateOnly(o.updateOnly),
 	}
