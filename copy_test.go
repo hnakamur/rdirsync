@@ -299,8 +299,7 @@ func generateRandomFileWithSizeAndMode(filename string, size int64, mode os.File
 	}
 	defer file.Close()
 
-	reader := io.LimitReader(rand.Reader, size)
-	_, err = io.Copy(file, reader)
+	_, err = io.CopyN(file, rand.Reader, size)
 	return err
 }
 
