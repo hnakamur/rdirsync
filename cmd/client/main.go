@@ -78,16 +78,16 @@ func parseOptions(subcommand, usage string, args []string) (*flag.FlagSet, *opti
 	}
 
 	var opts options
-	fs.StringVar(&opts.serverAddr, "server-addr", "127.0.0.1:10000", "server address to connect")
-	fs.StringVar(&opts.serverHostOverride, "server-host-override", "grpc.example.com", "The server name use to verify the hostname returned by TLS handshake")
-	fs.BoolVar(&opts.enableTLS, "enable-tls", false, "enable TLS")
-	fs.StringVar(&opts.caFile, "ca-file", "cacert.pem", "The file containning the CA root cert file")
-	fs.IntVar(&opts.bufSize, "buf-size", 64*1024, "buffer size for reading a file")
+	fs.StringVar(&opts.serverAddr, "server", "127.0.0.1:10000", "server address to connect")
+	fs.StringVar(&opts.serverHostOverride, "hostname", "grpc.example.com", "The server name use to verify the hostname returned by TLS handshake")
+	fs.BoolVar(&opts.enableTLS, "tls", false, "enable TLS")
+	fs.StringVar(&opts.caFile, "cafile", "cacert.pem", "The file containning the CA root cert file")
+	fs.IntVar(&opts.bufSize, "bufsize", 64*1024, "buffer size for reading a file")
 	fs.IntVar(&opts.maxEntriesPerReadDirRPC, "at-most-count", 1024, "at most file info count per readdir rpc")
 	fs.BoolVar(&opts.keepDeletedFiles, "keep-deleted-files", false, "wether or not keep deleted files")
-	fs.BoolVar(&opts.syncOwnerAndGroup, "sync-owner-and-group", false, "sync owner and group")
-	fs.BoolVar(&opts.syncModTime, "sync-mod-time", false, "sync modification time")
-	fs.BoolVar(&opts.updateOnly, "update-only", false, "skip update files whose size is the same and mod time is equal or newer")
+	fs.BoolVar(&opts.syncOwnerAndGroup, "o", false, "preseve owner and group (super-user only)")
+	fs.BoolVar(&opts.syncModTime, "t", false, "preserve modification times")
+	fs.BoolVar(&opts.updateOnly, "u", false, "skip files that are newer on the receiver")
 	fs.Parse(args)
 	return fs, &opts
 }
