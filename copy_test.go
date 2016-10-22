@@ -6,8 +6,12 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"os/user"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"testing"
+	"time"
 )
 
 const (
@@ -283,8 +287,7 @@ func compareAndCopy(srcPath, destPath string) error {
 }
 
 func writeRandomBytes(file *os.File, size int64) error {
-	reader := io.LimitReader(rand.Reader, size)
-	_, err := io.Copy(file, reader)
+	_, err := io.CopyN(file, rand.Reader, size)
 	return err
 }
 
@@ -350,4 +353,171 @@ func sameFileContent(t *testing.T, gotDir, wantDir, gotFilename, wantFilename st
 		}
 	}
 	return true
+}
+
+func sameDirTreeContent(t *testing.T, gotDir, wantDir string) bool {
+	gotNames, err := filepath.Glob(filepath.Join(gotDir, "*"))
+	if err != nil {
+		t.Fatalf("failed to glob under dir %s; %s", gotDir, err)
+	}
+	wantNames, err := filepath.Glob(filepath.Join(wantDir, "*"))
+	if err != nil {
+		t.Fatalf("failed to glob under dir %s; %s", wantDir, err)
+	}
+	if len(gotNames) != len(wantNames) {
+		t.Errorf("unmatch entry count. got:%d, want:%d", len(gotNames), len(wantNames))
+		return false
+	}
+	sort.Strings(gotNames)
+	sort.Strings(wantNames)
+	for i := 0; i < len(gotNames); i++ {
+		gotName := filepath.Base(gotNames[i])
+		wantName := filepath.Base(wantNames[i])
+		gotPath := filepath.Join(gotDir, gotName)
+		wantPath := filepath.Join(wantDir, wantName)
+		gotFileInfo, err := os.Stat(gotPath)
+		if err != nil {
+			t.Fatalf("cannot stat file; %s", err)
+			return false
+		}
+		wantFileInfo, err := os.Stat(wantPath)
+		if err != nil {
+			t.Fatalf("cannot stat file; %s", err)
+			return false
+		}
+
+		same := sameDirOrFile(t, gotDir, wantDir, gotFileInfo, wantFileInfo)
+		if !same {
+			return false
+		}
+
+		if gotFileInfo.IsDir() {
+			same = sameDirTreeContent(t, filepath.Join(gotDir, gotName), filepath.Join(wantDir, wantName))
+			if !same {
+				return false
+			}
+		}
+	}
+
+	return false
+}
+
+func sameDirOrFile(t *testing.T, gotDir, wantDir string, gotFileInfo, wantFileInfo os.FileInfo) bool {
+	if !sameFileInfo(t, gotDir, wantDir, gotFileInfo, wantFileInfo) {
+		return false
+	}
+	if gotFileInfo.IsDir() {
+		return true
+	}
+	return sameFileContent(t, gotDir, wantDir, gotFileInfo.Name(), wantFileInfo.Name())
+}
+
+func sameFileInfoAndContent(t *testing.T, gotDir, wantDir, gotFilename, wantFilename string) bool {
+	wantPath := filepath.Join(wantDir, wantFilename)
+	wantFileInfo, err := os.Stat(wantPath)
+	if err != nil {
+		t.Fatalf("fail to stat file %s; %s", wantPath, err)
+	}
+	gotPath := filepath.Join(gotDir, gotFilename)
+	gotFileInfo, err := os.Stat(gotPath)
+	if err != nil {
+		t.Fatalf("fail to stat file %s; %s", gotPath, err)
+	}
+	return sameFileInfo(t, gotDir, wantDir, gotFileInfo, wantFileInfo) &&
+		sameFileContent(t, gotDir, wantDir, gotFilename, wantFilename)
+}
+
+func sameFileInfo(t *testing.T, gotDir, wantDir string, gotFileInfo, wantFileInfo os.FileInfo) bool {
+	same := true
+	if gotFileInfo.Size() != wantFileInfo.Size() {
+		t.Errorf("unmatch size. wantDir:%s; gotFileInfo:%d; wantFileInfo:%d", wantDir, gotFileInfo.Size(), wantFileInfo.Size())
+		same = false
+	}
+	if gotFileInfo.Mode() != wantFileInfo.Mode() {
+		t.Errorf("unmatch mode. wantDir:%s; gotFileInfo:%s; wantFileInfo:%s", wantDir, gotFileInfo.Mode(), wantFileInfo.Mode())
+		same = false
+	}
+	gotModTime := gotFileInfo.ModTime()
+	wantModTime := wantFileInfo.ModTime()
+	if gotModTime != wantModTime {
+		t.Errorf("unmatch modification time. wantDir:%s; gotFileInfo:%s; wantFileInfo:%s", wantDir, gotModTime, wantModTime)
+		same = false
+	}
+	if gotFileInfo.IsDir() != wantFileInfo.IsDir() {
+		t.Errorf("unmatch isDir. wantDir:%s; gotFileInfo:%v; wantFileInfo:%v", wantDir, gotFileInfo.IsDir(), wantFileInfo.IsDir())
+		same = false
+	}
+	return same
+}
+
+type testFileTreeNode struct {
+	name    string
+	size    int64
+	mode    os.FileMode
+	modTime time.Time
+	owner   string
+	group   string
+
+	children []testFileTreeNode
+}
+
+func (n testFileTreeNode) IsDir() bool { return n.mode&os.ModeDir != 0 }
+
+func (n testFileTreeNode) Perm() os.FileMode { return n.mode & os.ModePerm }
+
+func buildFileTree(baseDir string, n testFileTreeNode) error {
+	path := filepath.Join(baseDir, n.name)
+	if n.IsDir() {
+		err := os.MkdirAll(path, 0700)
+		if err != nil {
+			return err
+		}
+
+		for _, child := range n.children {
+			err := buildFileTree(filepath.Join(baseDir, n.name), child)
+			if err != nil {
+				return err
+			}
+		}
+	} else {
+		err := generateRandomFileWithSizeAndMode(path, n.size, 0600)
+		if err != nil {
+			return err
+		}
+	}
+
+	err := os.Chmod(path, n.Perm())
+	if err != nil {
+		return err
+	}
+	if n.owner != "" && n.group != "" && os.Getuid() == 0 {
+		u, err := user.Lookup(n.owner)
+		if err != nil {
+			return err
+		}
+		uid, err := strconv.Atoi(u.Uid)
+		if err != nil {
+			return err
+		}
+
+		g, err := user.LookupGroup(n.group)
+		if err != nil {
+			return err
+		}
+		gid, err := strconv.Atoi(g.Gid)
+		if err != nil {
+			return err
+		}
+		err = os.Chown(path, uid, gid)
+		if err != nil {
+			return err
+		}
+	}
+	if !n.modTime.IsZero() {
+		err := os.Chtimes(path, time.Now(), n.modTime)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
