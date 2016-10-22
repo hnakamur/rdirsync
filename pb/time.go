@@ -2,13 +2,10 @@ package pb
 
 import "time"
 
-func ConvertTimeFromPB(t *UnixTime) time.Time {
-	return time.Unix(t.Second, t.NanoSecond)
+func ConvertTimeFromPB(t int64) time.Time {
+	return time.Unix(t/1e9, t%1e9)
 }
 
-func ConvertTimeToPB(t time.Time) *UnixTime {
-	return &UnixTime{
-		Second:     t.Unix(),
-		NanoSecond: int64(t.Nanosecond()),
-	}
+func ConvertTimeToPB(t time.Time) int64 {
+	return t.UnixNano()
 }
