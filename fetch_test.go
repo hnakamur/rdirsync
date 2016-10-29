@@ -40,16 +40,27 @@ func TestFetch(t *testing.T) {
 	go grpcServer.Serve(lis)
 	defer grpcServer.Stop()
 
-	conn, err := grpc.Dial(lis.Addr().String(), grpc.WithInsecure())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
+	// NOTE: We dial each time for Fetch to avoid the following error.
+	// transport: http2Server.HandleStreams failed to read frame: read tcp 127.0.0.1:37025->127.0.0.1:38422: use of closed network connection
+	runFetch := func() error {
+		conn, err := grpc.Dial(lis.Addr().String(), grpc.WithInsecure())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
 
-	client, err := rdirsync.NewClient(conn,
-		rdirsync.SetSyncModTime(true))
-	if err != nil {
-		t.Fatal(err)
+		client, err := rdirsync.NewClient(conn,
+			rdirsync.SetSyncModTime(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ctx := context.Background()
+		err = client.Fetch(ctx, srcDir, destDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return nil
 	}
 
 	testCases := []struct {
@@ -96,10 +107,9 @@ func TestFetch(t *testing.T) {
 			log.Fatal(err)
 		}
 
-		ctx := context.Background()
-		err = client.Fetch(ctx, srcDir, destDir)
+		err = runFetch()
 		if err != nil {
-			t.Fatal(err)
+			return
 		}
 		sameDirTreeContent(t, destDir, srcDir)
 
@@ -110,10 +120,9 @@ func TestFetch(t *testing.T) {
 			}
 		}
 
-		ctx = context.Background()
-		err = client.Fetch(ctx, srcDir, destDir)
+		err = runFetch()
 		if err != nil {
-			t.Fatal(err)
+			return
 		}
 		sameDirTreeContent(t, destDir, srcDir)
 
