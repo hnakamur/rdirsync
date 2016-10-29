@@ -2,6 +2,8 @@ package rdirsync_test
 
 import (
 	"context"
+	"crypto/rand"
+	"io"
 	"io/ioutil"
 	"log"
 	"net"
@@ -64,4 +66,63 @@ func TestFetch(t *testing.T) {
 		t.Fatal(err)
 	}
 	sameDirTreeContent(t, destDir, srcDir)
+
+	buildSrcPath := func(names ...string) string {
+		return filepath.Join(srcDir, filepath.Join(names...))
+	}
+	ops := []modificationOp{
+		truncateOp(buildSrcPath("dir1", "file1-1"), 500),
+		removeFileOp(buildSrcPath("dir1", "file1-2")),
+		writeRandomOp(buildSrcPath("dir1", "file1-3"), 100, 300),
+	}
+	for _, op := range ops {
+		err := op()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx = context.Background()
+	err = client.Fetch(ctx, srcDir, destDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameDirTreeContent(t, destDir, srcDir)
+}
+
+type modificationOp func() error
+
+func truncateOp(path string, size int64) modificationOp {
+	return func() error {
+		return os.Truncate(path, size)
+	}
+}
+
+func writeRandomOp(path string, offset, length int64) modificationOp {
+	return func() error {
+		file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		_, err = file.Seek(offset, os.SEEK_SET)
+		if err != nil {
+			return err
+		}
+		_, err = io.CopyN(file, rand.Reader, length)
+		return err
+	}
+}
+
+func removeFileOp(path string) modificationOp {
+	return func() error {
+		return os.Remove(path)
+	}
+}
+
+func removeDirOp(path string) modificationOp {
+	return func() error {
+		return os.RemoveAll(path)
+	}
 }
