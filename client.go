@@ -1,6 +1,7 @@
 package rdirsync
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -173,13 +174,13 @@ func (c *Client) fetchFileAndChmod(ctx context.Context, remotePath, localPath st
 		return err
 	}
 
-	file, err := os.Create(localPath)
+	file, err := os.OpenFile(localPath, os.O_RDWR|os.O_CREATE, 0666)
 	if os.IsPermission(err) {
 		err = makeReadWritable(localPath)
 		if err != nil {
 			return err
 		}
-		file, err = os.Create(localPath)
+		file, err = os.OpenFile(localPath, os.O_RDWR|os.O_CREATE, 0666)
 		if err != nil {
 			return err
 		}
@@ -188,12 +189,51 @@ func (c *Client) fetchFileAndChmod(ctx context.Context, remotePath, localPath st
 	}
 	defer file.Close()
 
+	var destEnd int64
+	if rfi != nil && lfi != nil {
+		destEnd = lfi.Size()
+		if rfi.Size() < destEnd {
+			err = file.Truncate(rfi.Size())
+			if err != nil {
+				return err
+			}
+			destEnd = rfi.Size()
+		}
+	}
+
+	var destPos int64
+	var destBuf []byte
+	if destPos < destEnd {
+		destBuf = make([]byte, c.bufSize)
+	}
 	for {
 		chunk, err := stream.Recv()
 		if err == io.EOF {
 			break
 		} else if err != nil {
 			return err
+		}
+
+		if destPos < destEnd {
+			destN, err := io.ReadFull(file, destBuf)
+			if err == io.EOF {
+				break
+			}
+			if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+				return err
+			}
+			destPos += int64(destN)
+
+			if bytes.Equal(destBuf[:destN], chunk.Chunk) {
+				continue
+			}
+
+			if destN > 0 {
+				_, err := file.Seek(int64(-destN), os.SEEK_CUR)
+				if err != nil {
+					return err
+				}
+			}
 		}
 
 		_, err = file.Write(chunk.Chunk)
