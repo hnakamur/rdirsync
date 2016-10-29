@@ -7,11 +7,11 @@ import (
 )
 
 type userGroupDB struct {
-	muUser       sync.Mutex
+	muUser       sync.RWMutex
 	nameToUidMap map[string]uint32
 	uidToNameMap map[uint32]string
 
-	muGroup      sync.Mutex
+	muGroup      sync.RWMutex
 	nameToGidMap map[string]uint32
 	gidToNameMap map[uint32]string
 }
@@ -26,10 +26,9 @@ func newUserGroupDB() *userGroupDB {
 }
 
 func (db *userGroupDB) LookupUser(name string) (uint32, error) {
-	db.muUser.Lock()
-	defer db.muUser.Unlock()
-
+	db.muUser.RLock()
 	uid, exists := db.nameToUidMap[name]
+	db.muUser.RUnlock()
 	if exists {
 		return uid, nil
 	}
@@ -48,10 +47,9 @@ func (db *userGroupDB) LookupUser(name string) (uint32, error) {
 }
 
 func (db *userGroupDB) LookupUid(uid uint32) (string, error) {
-	db.muUser.Lock()
-	defer db.muUser.Unlock()
-
+	db.muUser.RLock()
 	name, exists := db.uidToNameMap[uid]
+	db.muUser.RUnlock()
 	if exists {
 		return name, nil
 	}
@@ -67,15 +65,16 @@ func (db *userGroupDB) LookupUid(uid uint32) (string, error) {
 }
 
 func (db *userGroupDB) cacheUser(uid uint32, name string) {
+	db.muUser.Lock()
 	db.nameToUidMap[name] = uid
 	db.uidToNameMap[uid] = name
+	db.muUser.Unlock()
 }
 
 func (db *userGroupDB) LookupGroup(name string) (uint32, error) {
-	db.muGroup.Lock()
-	defer db.muGroup.Unlock()
-
+	db.muGroup.RLock()
 	gid, exists := db.nameToGidMap[name]
+	db.muGroup.RUnlock()
 	if exists {
 		return gid, nil
 	}
@@ -94,10 +93,9 @@ func (db *userGroupDB) LookupGroup(name string) (uint32, error) {
 }
 
 func (db *userGroupDB) LookupGid(gid uint32) (string, error) {
-	db.muGroup.Lock()
-	defer db.muGroup.Unlock()
-
+	db.muGroup.RLock()
 	name, exists := db.gidToNameMap[gid]
+	db.muGroup.RUnlock()
 	if exists {
 		return name, nil
 	}
@@ -113,8 +111,10 @@ func (db *userGroupDB) LookupGid(gid uint32) (string, error) {
 }
 
 func (db *userGroupDB) cacheGroup(gid uint32, name string) {
+	db.muGroup.Lock()
 	db.nameToUidMap[name] = gid
 	db.uidToNameMap[gid] = name
+	db.muGroup.Unlock()
 }
 
 func formatUint32(i uint32) string {
