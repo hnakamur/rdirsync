@@ -1,6 +1,7 @@
 package rdirsync
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"syscall"
@@ -131,6 +132,9 @@ func (s *server) EnsureNotExist(ctx context.Context, req *pb.EnsureNotExistReque
 
 func (s *server) SendFile(stream pb.RDirSync_SendFileServer) error {
 	var file *os.File
+	var destPos int64
+	var destEnd int64
+	var destBuf []byte
 	for {
 		chunk, err := stream.Recv()
 		if err == io.EOF {
@@ -146,13 +150,13 @@ func (s *server) SendFile(stream pb.RDirSync_SendFileServer) error {
 				return err
 			}
 
-			file, err = os.Create(chunk.Path)
+			file, err = os.OpenFile(chunk.Path, os.O_RDWR|os.O_CREATE, 0666)
 			if os.IsPermission(err) {
 				err = makeReadWritable(chunk.Path)
 				if err != nil {
 					return err
 				}
-				file, err = os.Create(chunk.Path)
+				file, err = os.OpenFile(chunk.Path, os.O_RDWR|os.O_CREATE, 0666)
 				if err != nil {
 					return err
 				}
@@ -160,15 +164,56 @@ func (s *server) SendFile(stream pb.RDirSync_SendFileServer) error {
 				return err
 			}
 			defer file.Close()
-		}
 
-		if len(chunk.Chunk) > 0 {
-			_, err = file.Write(chunk.Chunk)
+			fi, err := file.Stat()
 			if err != nil {
 				return err
 			}
+			destEnd = fi.Size()
+
+			if destEnd > 0 {
+				destBuf = make([]byte, len(chunk.Chunk))
+			}
+		}
+
+		if destPos < destEnd {
+			destN, err := io.ReadFull(file, destBuf)
+			if err == io.EOF {
+				break
+			}
+			if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+				return err
+			}
+			destPos += int64(destN)
+
+			if bytes.Equal(destBuf[:destN], chunk.Chunk) {
+				continue
+			}
+
+			if destN > 0 {
+				_, err := file.Seek(int64(-destN), os.SEEK_CUR)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		if len(chunk.Chunk) > 0 {
+			n, err := file.Write(chunk.Chunk)
+			if err != nil {
+				return err
+			}
+			destPos += int64(n)
 		}
 	}
+
+	if destPos < destEnd {
+		err := file.Truncate(destPos)
+		if err != nil {
+			return err
+		}
+	}
+
 	return stream.SendAndClose(new(pb.Empty))
 }
 
