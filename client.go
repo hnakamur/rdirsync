@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/hnakamur/rdirsync/pb"
 	"google.golang.org/grpc"
 )
@@ -474,49 +476,102 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 		return err
 	}
 
+	g, ctx := errgroup.WithContext(ctx)
 	li := 0
-	for _, rfi := range remoteInfos {
-		for li < len(localInfos) && localInfos[li].Name() < rfi.Name() {
-			if !c.keepDeletedFiles {
-				lfi := localInfos[li]
-				err = ensureNotExist(filepath.Join(localPath, lfi.Name()), lfi)
-				if err != nil {
-					return err
+	works := make(chan fetchWork)
+	g.Go(func() error {
+		defer close(works)
+		for _, rfi := range remoteInfos {
+			for li < len(localInfos) && localInfos[li].Name() < rfi.Name() {
+				if !c.keepDeletedFiles {
+					lfi := localInfos[li]
+					err = ensureNotExist(filepath.Join(localPath, lfi.Name()), lfi)
+					if err != nil {
+						return err
+					}
+				}
+				li++
+			}
+
+			var lfi *fileInfo
+			if li < len(localInfos) && localInfos[li].Name() == rfi.Name() {
+				lfi = localInfos[li]
+				li++
+				if lfi.IsDir() != rfi.IsDir() {
+					err = ensureNotExist(filepath.Join(localPath, lfi.Name()), lfi)
+					if err != nil {
+						return err
+					}
 				}
 			}
-			li++
-		}
 
-		var lfi *fileInfo
-		if li < len(localInfos) && localInfos[li].Name() == rfi.Name() {
-			lfi = localInfos[li]
-			li++
-			if lfi.IsDir() != rfi.IsDir() {
-				err = ensureNotExist(filepath.Join(localPath, lfi.Name()), lfi)
-				if err != nil {
-					return err
+			var work fetchWork
+			if rfi.IsDir() {
+				work = fetchWork{
+					remotePath: remotePath,
+					localPath:  localPath,
+					rfi:        rfi,
+					lfi:        nil,
+				}
+			} else {
+				work = fetchWork{
+					remotePath: remotePath,
+					localPath:  localPath,
+					rfi:        rfi,
+					lfi:        lfi,
 				}
 			}
+			select {
+			case works <- work:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		}
+		return nil
+	})
 
-		if rfi.IsDir() {
-			err = c.fetchDirAndChmod(ctx,
-				filepath.Join(remotePath, rfi.Name()),
-				filepath.Join(localPath, rfi.Name()),
-				rfi)
-			if err != nil {
-				return err
+	results := make(chan struct{})
+	const numWorkers = 4
+	for i := 0; i < numWorkers; i++ {
+		g.Go(func() error {
+			for w := range works {
+				if w.rfi.IsDir() {
+					err := c.fetchDirAndChmod(ctx,
+						filepath.Join(w.remotePath, w.rfi.Name()),
+						filepath.Join(w.localPath, w.rfi.Name()),
+						w.rfi)
+					if err != nil {
+						return err
+					}
+				} else {
+					err := c.fetchFileAndChmod(ctx,
+						filepath.Join(w.remotePath, w.rfi.Name()),
+						filepath.Join(w.localPath, w.rfi.Name()),
+						w.rfi,
+						w.lfi)
+					if err != nil {
+						return err
+					}
+				}
+				select {
+				case results <- struct{}{}:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 			}
-		} else {
-			err = c.fetchFileAndChmod(ctx,
-				filepath.Join(remotePath, rfi.Name()),
-				filepath.Join(localPath, rfi.Name()),
-				rfi,
-				lfi)
-			if err != nil {
-				return err
-			}
-		}
+			return nil
+		})
+	}
+	go func() {
+		g.Wait()
+		close(results)
+	}()
+
+	for range results {
+	}
+	err = g.Wait()
+	if err != nil {
+		return err
 	}
 
 	if !c.keepDeletedFiles {
@@ -547,6 +602,13 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 		}
 	}
 	return nil
+}
+
+type fetchWork struct {
+	remotePath string
+	localPath  string
+	rfi        *fileInfo
+	lfi        *fileInfo
 }
 
 func (c *Client) Send(ctx context.Context, localPath, remotePath string) error {
