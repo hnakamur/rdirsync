@@ -106,6 +106,37 @@ func TestFetch(t *testing.T) {
 				writeRandomOp(buildSrcPath("file1"), 0, 2000),
 			},
 		},
+		{
+			tree: testFileTreeNode{
+				name: "dirorfile1", mode: os.ModeDir | 0775,
+			},
+			modifications: []modificationOp{
+				removeDirOp(buildSrcPath("dirorfile1")),
+				writeRandomOp(buildSrcPath("dirorfile1"), 0, 0),
+			},
+		},
+		{
+			tree: testFileTreeNode{
+				name: "dirorfile1", mode: os.ModeDir | 0775,
+				children: []testFileTreeNode{
+					{name: "dir2", mode: os.ModeDir | 0750},
+					{name: "file2-1", mode: 0660, size: 64},
+				},
+			},
+			modifications: []modificationOp{
+				removeDirOp(buildSrcPath("dirorfile1")),
+				writeRandomOp(buildSrcPath("dirorfile1"), 0, 0),
+			},
+		},
+		{
+			tree: testFileTreeNode{
+				name: "dirorfile1", mode: 0644, size: 0,
+			},
+			modifications: []modificationOp{
+				removeFileOp(buildSrcPath("dirorfile1")),
+				makeDirOp(buildSrcPath("dirorfile1"), 0700),
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -183,5 +214,11 @@ func removeFileOp(path string) modificationOp {
 func removeDirOp(path string) modificationOp {
 	return func() error {
 		return os.RemoveAll(path)
+	}
+}
+
+func makeDirOp(path string, mode os.FileMode) modificationOp {
+	return func() error {
+		return os.MkdirAll(path, mode)
 	}
 }
