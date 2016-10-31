@@ -463,7 +463,8 @@ func (c *Client) FetchDir(ctx context.Context, remotePath, localPath string) err
 
 func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath string, fi *fileInfo) error {
 	g, ctx := errgroup.WithContext(ctx)
-	fetchWorks := make(chan fetchWork)
+	fetchFileWorks := make(chan fetchFileWork)
+	deleteWorks := make(chan deleteWork)
 	postProcessDirWorks := make(chan fetchPostProcessDirWork)
 
 	var walk func(ctx context.Context, remotePath, localPath string, fi *fileInfo) error
@@ -490,14 +491,13 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 				if !c.keepDeletedFiles {
 					lfi := localInfos[li]
 					dirWg.Add(1)
-					work := fetchWork{
-						op:        fetchOpDelete,
+					work := deleteWork{
 						localPath: filepath.Join(localPath, lfi.Name()),
 						lfi:       lfi,
 						dirWg:     dirWg,
 					}
 					select {
-					case fetchWorks <- work:
+					case deleteWorks <- work:
 					case <-ctx.Done():
 						return ctx.Err()
 					}
@@ -527,8 +527,7 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 				}
 			} else {
 				dirWg.Add(1)
-				work := fetchWork{
-					op:         fetchOpFetchFile,
+				work := fetchFileWork{
 					remotePath: filepath.Join(remotePath, rfi.Name()),
 					localPath:  filepath.Join(localPath, rfi.Name()),
 					rfi:        rfi,
@@ -536,7 +535,7 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 					dirWg:      dirWg,
 				}
 				select {
-				case fetchWorks <- work:
+				case fetchFileWorks <- work:
 				case <-ctx.Done():
 					return ctx.Err()
 				}
@@ -548,14 +547,13 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 				lfi := localInfos[li]
 				li++
 				dirWg.Add(1)
-				work := fetchWork{
-					op:        fetchOpDelete,
+				work := deleteWork{
 					localPath: filepath.Join(localPath, lfi.Name()),
 					lfi:       lfi,
 					dirWg:     dirWg,
 				}
 				select {
-				case fetchWorks <- work:
+				case deleteWorks <- work:
 				case <-ctx.Done():
 					return ctx.Err()
 				}
@@ -575,32 +573,26 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 		return nil
 	}
 	g.Go(func() error {
-		defer close(fetchWorks)
+		defer close(fetchFileWorks)
+		defer close(deleteWorks)
 		defer close(postProcessDirWorks)
 		return walk(ctx, remotePath, localPath, fi)
 	})
 
-	const numWorkers = 4
-	for i := 0; i < numWorkers; i++ {
+	const numFetchWorkers = 4
+	for i := 0; i < numFetchWorkers; i++ {
 		g.Go(func() error {
-			for w := range fetchWorks {
+			for w := range fetchFileWorks {
 				return func() error {
 					defer w.dirWg.Done()
-					switch w.op {
-					case fetchOpFetchFile:
-						err := c.fetchFileAndChmod(ctx,
-							w.remotePath,
-							w.localPath,
-							w.rfi,
-							w.lfi)
-						if err != nil {
-							return err
-						}
-					case fetchOpDelete:
-						err := ensureNotExist(w.localPath, w.lfi)
-						if err != nil {
-							return err
-						}
+
+					err := c.fetchFileAndChmod(ctx,
+						w.remotePath,
+						w.localPath,
+						w.rfi,
+						w.lfi)
+					if err != nil {
+						return err
 					}
 
 					select {
@@ -613,6 +605,32 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 			}
 			return nil
 		})
+	}
+
+	if !c.keepDeletedFiles {
+		const numDeleteWorkers = 2
+		for i := 0; i < numDeleteWorkers; i++ {
+			g.Go(func() error {
+				for w := range deleteWorks {
+					return func() error {
+						defer w.dirWg.Done()
+
+						err := ensureNotExist(w.localPath, w.lfi)
+						if err != nil {
+							return err
+						}
+
+						select {
+						case <-ctx.Done():
+							return ctx.Err()
+						default:
+						}
+						return nil
+					}()
+				}
+				return nil
+			})
+		}
 	}
 
 	g.Go(func() error {
@@ -641,20 +659,18 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 	return g.Wait()
 }
 
-type fetchOp int
-
-const (
-	fetchOpFetchFile = iota + 1
-	fetchOpDelete
-)
-
-type fetchWork struct {
-	op         fetchOp
+type fetchFileWork struct {
 	remotePath string
 	localPath  string
 	rfi        *fileInfo
 	lfi        *fileInfo
 	dirWg      *sync.WaitGroup
+}
+
+type deleteWork struct {
+	localPath string
+	lfi       *fileInfo
+	dirWg     *sync.WaitGroup
 }
 
 type fetchPostProcessDirWork struct {
