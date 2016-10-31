@@ -463,13 +463,13 @@ func (c *Client) FetchDir(ctx context.Context, remotePath, localPath string) err
 	return c.fetchDirAndChmod(ctx, remotePath, localPath, rfi)
 }
 
-func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath string, fi *fileInfo) error {
+func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath string, rfi *fileInfo) error {
 	g, ctx := errgroup.WithContext(ctx)
 	fetchFileWorks := make(chan fetchFileWork)
 	deleteWorks := make(chan deleteWork)
 
-	var walk func(ctx context.Context, remotePath, localPath string, fi *fileInfo, treeNode *postProcessDirTreeNode) error
-	walk = func(ctx context.Context, remotePath, localPath string, fi *fileInfo, treeNode *postProcessDirTreeNode) error {
+	var walk func(ctx context.Context, remotePath, localPath string, rfi *fileInfo, treeNode *postProcessDirTreeNode) error
+	walk = func(ctx context.Context, remotePath, localPath string, rfi *fileInfo, treeNode *postProcessDirTreeNode) error {
 		remoteInfos, err := c.readRemoteDir(ctx, remotePath)
 		if err != nil {
 			return err
@@ -567,15 +567,15 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 
 	treeRoot := &postProcessDirTreeNode{
 		localPath: localPath,
-		mode:      fi.Mode(),
-		modTime:   fi.ModTime(),
-		uid:       fi.Uid(),
-		gid:       fi.Gid(),
+		mode:      rfi.Mode(),
+		modTime:   rfi.ModTime(),
+		uid:       rfi.Uid(),
+		gid:       rfi.Gid(),
 	}
 	g.Go(func() error {
 		defer close(fetchFileWorks)
 		defer close(deleteWorks)
-		return walk(ctx, remotePath, localPath, fi, treeRoot)
+		return walk(ctx, remotePath, localPath, rfi, treeRoot)
 	})
 
 	const numFetchWorkers = 8
