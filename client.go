@@ -6,12 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -469,13 +467,9 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 	g, ctx := errgroup.WithContext(ctx)
 	fetchFileWorks := make(chan fetchFileWork)
 	deleteWorks := make(chan deleteWork)
-	postProcessDirWorks := make(chan fetchPostProcessDirWork)
 
-	var walk func(ctx context.Context, remotePath, localPath string, fi *fileInfo) error
-	walk = func(ctx context.Context, remotePath, localPath string, fi *fileInfo) error {
-		log.Printf("walk start for localPath=%s", localPath)
-		defer log.Printf("walk finish for localPath=%s", localPath)
-
+	var walk func(ctx context.Context, remotePath, localPath string, fi *fileInfo, treeNode *postProcessDirTreeNode) error
+	walk = func(ctx context.Context, remotePath, localPath string, fi *fileInfo, treeNode *postProcessDirTreeNode) error {
 		remoteInfos, err := c.readRemoteDir(ctx, remotePath)
 		if err != nil {
 			return err
@@ -492,19 +486,13 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 		}
 
 		li := 0
-		dirWg := new(sync.WaitGroup)
-		dirWg.Add(1)
-		log.Printf("walk start loop for remoteInfos count=%d, localPath=%s", len(remoteInfos), localPath)
 		for _, rfi := range remoteInfos {
 			for li < len(localInfos) && localInfos[li].Name() < rfi.Name() {
 				if !c.keepDeletedFiles {
 					lfi := localInfos[li]
-					log.Printf("walk sending deleteWork, localPath=%s, lfi.Name=%s", localPath, lfi.Name())
-					dirWg.Add(1)
 					work := deleteWork{
 						localPath: filepath.Join(localPath, lfi.Name()),
 						lfi:       lfi,
-						dirWg:     dirWg,
 					}
 					select {
 					case deleteWorks <- work:
@@ -528,22 +516,28 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 			}
 
 			if rfi.IsDir() {
+				childNode := &postProcessDirTreeNode{
+					localPath: filepath.Join(localPath, rfi.Name()),
+					mode:      rfi.Mode(),
+					modTime:   rfi.ModTime(),
+					uid:       rfi.Uid(),
+					gid:       rfi.Gid(),
+				}
+				treeNode.children = append(treeNode.children, childNode)
 				err = walk(ctx,
 					filepath.Join(remotePath, rfi.Name()),
 					filepath.Join(localPath, rfi.Name()),
-					rfi)
+					rfi,
+					childNode)
 				if err != nil {
 					return err
 				}
 			} else {
-				log.Printf("walk sending fetchFileWork, localPath=%s, rfi.Name=%s", localPath, rfi.Name())
-				dirWg.Add(1)
 				work := fetchFileWork{
 					remotePath: filepath.Join(remotePath, rfi.Name()),
 					localPath:  filepath.Join(localPath, rfi.Name()),
 					rfi:        rfi,
 					lfi:        lfi,
-					dirWg:      dirWg,
 				}
 				select {
 				case fetchFileWorks <- work:
@@ -557,12 +551,9 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 			for li < len(localInfos) {
 				lfi := localInfos[li]
 				li++
-				log.Printf("walk sending deleteWork, localPath=%s, lfi.Name=%s", localPath, lfi.Name())
-				dirWg.Add(1)
 				work := deleteWork{
 					localPath: filepath.Join(localPath, lfi.Name()),
 					lfi:       lfi,
-					dirWg:     dirWg,
 				}
 				select {
 				case deleteWorks <- work:
@@ -571,55 +562,34 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 				}
 			}
 		}
-
-		log.Printf("walk before sending to postProcessDirWorks. localPath=%s", localPath)
-		work := fetchPostProcessDirWork{
-			dirWg:     dirWg,
-			localPath: localPath,
-			rfi:       fi,
-		}
-		select {
-		case postProcessDirWorks <- work:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-		dirWg.Done()
 		return nil
 	}
+
+	treeRoot := &postProcessDirTreeNode{
+		localPath: localPath,
+		mode:      fi.Mode(),
+		modTime:   fi.ModTime(),
+		uid:       fi.Uid(),
+		gid:       fi.Gid(),
+	}
 	g.Go(func() error {
-		defer log.Printf("start walking")
 		defer close(fetchFileWorks)
 		defer close(deleteWorks)
-		defer close(postProcessDirWorks)
-		defer log.Printf("finish walking")
-		return walk(ctx, remotePath, localPath, fi)
+		return walk(ctx, remotePath, localPath, fi, treeRoot)
 	})
 
-	const numFetchWorkers = 4
+	const numFetchWorkers = 8
 	for i := 0; i < numFetchWorkers; i++ {
 		g.Go(func() error {
 			for w := range fetchFileWorks {
-				return func() error {
-					log.Printf("fetchFileWorker start for localPath=%s", w.localPath)
-					defer log.Printf("fetchFileWorker finish for localPath=%s", w.localPath)
-					defer w.dirWg.Done()
-
-					err := c.fetchFileAndChmod(ctx,
-						w.remotePath,
-						w.localPath,
-						w.rfi,
-						w.lfi)
-					if err != nil {
-						return err
-					}
-
-					select {
-					case <-ctx.Done():
-						return ctx.Err()
-					default:
-					}
-					return nil
-				}()
+				err := c.fetchFileAndChmod(ctx,
+					w.remotePath,
+					w.localPath,
+					w.rfi,
+					w.lfi)
+				if err != nil {
+					return err
+				}
 			}
 			return nil
 		})
@@ -630,56 +600,50 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 		for i := 0; i < numDeleteWorkers; i++ {
 			g.Go(func() error {
 				for w := range deleteWorks {
-					return func() error {
-						log.Printf("deleteWorker start for localPath=%s", w.localPath)
-						defer log.Printf("deleteWorker finish for localPath=%s", w.localPath)
-						defer w.dirWg.Done()
-
-						err := ensureNotExist(w.localPath, w.lfi)
-						if err != nil {
-							return err
-						}
-
-						select {
-						case <-ctx.Done():
-							return ctx.Err()
-						default:
-						}
-						return nil
-					}()
+					err := ensureNotExist(w.localPath, w.lfi)
+					if err != nil {
+						return err
+					}
 				}
 				return nil
 			})
 		}
 	}
 
-	g.Go(func() error {
-		for w := range postProcessDirWorks {
-			log.Printf("postProcessDirWorker start for localPath=%s", w.localPath)
-			w.dirWg.Wait()
-			log.Printf("postProcessDirWorker dirWg.Wait done for localPath=%s", w.localPath)
-			if c.syncOwnerAndGroup {
-				err := os.Chown(w.localPath, int(w.rfi.Uid()), int(w.rfi.Gid()))
-				if err != nil {
-					return err
-				}
-			}
-			err := os.Chmod(w.localPath, w.rfi.Mode().Perm())
+	err := g.Wait()
+	if err != nil {
+		return err
+	}
+
+	var postWalk func(ctx context.Context, n *postProcessDirTreeNode) error
+	postWalk = func(ctx context.Context, n *postProcessDirTreeNode) error {
+		for _, child := range n.children {
+			err := postWalk(ctx, child)
 			if err != nil {
 				return err
 			}
-			if c.syncModTime {
-				err = os.Chtimes(w.localPath, time.Now(), w.rfi.ModTime())
-				if err != nil {
-					return err
-				}
+		}
+
+		if c.syncOwnerAndGroup {
+			err := os.Chown(n.localPath, int(n.uid), int(n.gid))
+			if err != nil {
+				return err
 			}
-			log.Printf("postProcessDirWorker finish for localPath=%s\n", w.localPath)
+		}
+		err := os.Chmod(n.localPath, n.mode.Perm())
+		if err != nil {
+			return err
+		}
+		if c.syncModTime {
+			err = os.Chtimes(n.localPath, time.Now(), n.modTime)
+			if err != nil {
+				return err
+			}
 		}
 		return nil
-	})
+	}
 
-	return g.Wait()
+	return postWalk(ctx, treeRoot)
 }
 
 type fetchFileWork struct {
@@ -687,19 +651,20 @@ type fetchFileWork struct {
 	localPath  string
 	rfi        *fileInfo
 	lfi        *fileInfo
-	dirWg      *sync.WaitGroup
 }
 
 type deleteWork struct {
 	localPath string
 	lfi       *fileInfo
-	dirWg     *sync.WaitGroup
 }
 
-type fetchPostProcessDirWork struct {
-	dirWg     *sync.WaitGroup
+type postProcessDirTreeNode struct {
 	localPath string
-	rfi       *fileInfo
+	mode      os.FileMode
+	modTime   time.Time
+	uid       uint32
+	gid       uint32
+	children  []*postProcessDirTreeNode
 }
 
 func (c *Client) Send(ctx context.Context, localPath, remotePath string) error {
