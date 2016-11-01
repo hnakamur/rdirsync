@@ -126,7 +126,7 @@ func (s *server) EnsureDirExists(ctx context.Context, req *pb.EnsureDirExistsReq
 }
 
 func (s *server) EnsureNotExist(ctx context.Context, req *pb.EnsureNotExistRequest) (*pb.Empty, error) {
-	err := ensureNotExist(req.Path, nil)
+	err := ensureDirOrFileNotExist(req.Path)
 	return new(pb.Empty), err
 }
 

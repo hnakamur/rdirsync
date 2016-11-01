@@ -132,15 +132,15 @@ func (c *Client) Fetch(ctx context.Context, remotePath, localPath string) error 
 		return fmt.Errorf("remote file or directory %q not found", remotePath)
 	}
 
+	lfi, err := c.statLocal(localPath)
+	if os.IsNotExist(err) {
+		lfi = nil
+	} else if err != nil {
+		return err
+	}
 	if rfi.IsDir() {
-		return c.fetchDirAndChmod(ctx, remotePath, localPath, rfi)
+		return c.fetchDirAndChmod(ctx, remotePath, localPath, rfi, lfi)
 	} else {
-		lfi, err := c.statLocal(localPath)
-		if os.IsNotExist(err) {
-			lfi = nil
-		} else if err != nil {
-			return err
-		}
 		return c.fetchFileAndChmod(ctx, remotePath, localPath, rfi, lfi)
 	}
 }
@@ -167,6 +167,13 @@ func (c *Client) FetchFile(ctx context.Context, remotePath, localPath string) er
 func (c *Client) fetchFileAndChmod(ctx context.Context, remotePath, localPath string, rfi, lfi *fileInfo) error {
 	if !c.isUpdateNeeded(rfi, lfi) {
 		return nil
+	}
+
+	if lfi != nil && lfi.IsDir() {
+		err := c.ensureLocalNotExist(localPath, lfi)
+		if err != nil {
+			return err
+		}
 	}
 
 	stream, err := c.client.FetchFile(ctx, &pb.FetchFileRequest{
@@ -460,22 +467,28 @@ func (c *Client) FetchDir(ctx context.Context, remotePath, localPath string) err
 		return fmt.Errorf("expected a remote directory but is a file %q", remotePath)
 	}
 
-	return c.fetchDirAndChmod(ctx, remotePath, localPath, rfi)
+	lfi, err := c.statLocal(localPath)
+	if os.IsNotExist(err) {
+		lfi = nil
+	} else if err != nil {
+		return err
+	}
+	return c.fetchDirAndChmod(ctx, remotePath, localPath, rfi, lfi)
 }
 
-func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath string, rfi *fileInfo) error {
+func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath string, rfi, lfi *fileInfo) error {
 	g, ctx := errgroup.WithContext(ctx)
 	fetchFileWorks := make(chan fetchFileWork)
 	deleteWorks := make(chan deleteWork)
 
-	var walk func(ctx context.Context, remotePath, localPath string, rfi *fileInfo, treeNode *postProcessDirTreeNode) error
-	walk = func(ctx context.Context, remotePath, localPath string, rfi *fileInfo, treeNode *postProcessDirTreeNode) error {
+	var walk func(ctx context.Context, remotePath, localPath string, rfi, lfi *fileInfo, treeNode *postProcessDirTreeNode) error
+	walk = func(ctx context.Context, remotePath, localPath string, rfi, lfi *fileInfo, treeNode *postProcessDirTreeNode) error {
 		remoteInfos, err := c.readRemoteDir(ctx, remotePath)
 		if err != nil {
 			return err
 		}
 
-		err = ensureDirExists(localPath, 0777)
+		err = c.ensureLocalDirExists(localPath, 0700, lfi)
 		if err != nil {
 			return err
 		}
@@ -507,12 +520,6 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 			if li < len(localInfos) && localInfos[li].Name() == rfi.Name() {
 				lfi = localInfos[li]
 				li++
-				if lfi.IsDir() != rfi.IsDir() {
-					err = ensureNotExist(filepath.Join(localPath, lfi.Name()), lfi)
-					if err != nil {
-						return err
-					}
-				}
 			}
 
 			if rfi.IsDir() {
@@ -528,6 +535,7 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 					filepath.Join(remotePath, rfi.Name()),
 					filepath.Join(localPath, rfi.Name()),
 					rfi,
+					lfi,
 					childNode)
 				if err != nil {
 					return err
@@ -575,7 +583,7 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 	g.Go(func() error {
 		defer close(fetchFileWorks)
 		defer close(deleteWorks)
-		return walk(ctx, remotePath, localPath, rfi, treeRoot)
+		return walk(ctx, remotePath, localPath, rfi, lfi, treeRoot)
 	})
 
 	const numFetchWorkers = 8
@@ -600,7 +608,7 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 		for i := 0; i < numDeleteWorkers; i++ {
 			g.Go(func() error {
 				for w := range deleteWorks {
-					err := ensureNotExist(w.localPath, w.lfi)
+					err := c.ensureLocalNotExist(w.localPath, w.lfi)
 					if err != nil {
 						return err
 					}
@@ -888,4 +896,41 @@ func (c *Client) sendDirAndChmod(ctx context.Context, localPath, remotePath stri
 
 func (c *Client) isUpdateNeeded(src, dest *fileInfo) bool {
 	return !c.updateOnly || dest == nil || dest.Size() != src.Size() || dest.ModTime().Before(src.ModTime())
+}
+
+func (c *Client) ensureLocalDirExists(path string, mode os.FileMode, fi *fileInfo) error {
+	if fi != nil {
+		if fi.IsDir() {
+			return nil
+		} else {
+			err := ensureFileNotExist(path)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	err := os.MkdirAll(path, mode.Perm())
+	if !os.IsPermission(err) {
+		return err
+	}
+
+	err = makeReadWritableRecursive(path)
+	if err != nil {
+		return err
+	}
+
+	return os.MkdirAll(path, mode.Perm())
+}
+
+func (c *Client) ensureLocalNotExist(path string, fi *fileInfo) error {
+	if fi == nil {
+		return nil
+	}
+
+	if fi.IsDir() {
+		return ensureDirNotExist(path)
+	} else {
+		return ensureFileNotExist(path)
+	}
 }

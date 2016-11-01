@@ -9,6 +9,59 @@ import (
 	"syscall"
 )
 
+func ensureDirOrFileNotExist(path string) error {
+	fi, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return nil
+	} else if os.IsPermission(err) {
+		err = makeReadWritableParentDir(path)
+		if err != nil {
+			return err
+		}
+		fi, err = os.Stat(path)
+		if os.IsNotExist(err) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+
+	if fi.IsDir() {
+		return ensureDirNotExist(path)
+	} else {
+		return ensureFileNotExist(path)
+	}
+}
+
+func ensureDirNotExist(path string) error {
+	err := os.RemoveAll(path)
+	if !os.IsPermission(err) {
+		return err
+	}
+
+	err = makeReadWritableRecursive(path)
+	if err != nil {
+		return err
+	}
+
+	return os.RemoveAll(path)
+}
+
+func ensureFileNotExist(path string) error {
+	err := os.Remove(path)
+	if !os.IsPermission(err) {
+		return err
+	}
+
+	err = makeReadWritableParentDir(path)
+	if err != nil {
+		return err
+	}
+	return os.Remove(path)
+}
+
 func makeReadWritable(path string) error {
 	err := makeReadWritableParentDir(path)
 	if err != nil {
