@@ -492,7 +492,7 @@ func (c *Client) FetchDir(ctx context.Context, remotePath, localPath string) err
 }
 
 func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath string, rfi, lfi *fileInfo) error {
-	g, ctx := errgroup.WithContext(ctx)
+	g, ctx2 := errgroup.WithContext(ctx)
 	fileWorks := make(chan fileWork)
 
 	var walk func(ctx context.Context, remotePath, localPath string, rfi, lfi *fileInfo, treeNode *postProcessDirTreeNode) error
@@ -596,7 +596,7 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 	}
 	g.Go(func() error {
 		defer close(fileWorks)
-		return walk(ctx, remotePath, localPath, rfi, lfi, treeRoot)
+		return walk(ctx2, remotePath, localPath, rfi, lfi, treeRoot)
 	})
 
 	for i := 0; i < c.fileWorkerCount; i++ {
