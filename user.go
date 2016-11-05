@@ -4,6 +4,8 @@ import (
 	"os/user"
 	"strconv"
 	"sync"
+
+	"github.com/pkg/errors"
 )
 
 type userGroupDB struct {
@@ -35,11 +37,11 @@ func (db *userGroupDB) LookupUser(name string) (uint32, error) {
 
 	user_, err := user.Lookup(name)
 	if err != nil {
-		return 0, err
+		return 0, errors.WithStack(err)
 	}
 	uid, err = parseUint32(user_.Uid)
 	if err != nil {
-		return 0, err
+		return 0, errors.WithStack(err)
 	}
 	db.cacheUser(uid, name)
 
@@ -56,7 +58,7 @@ func (db *userGroupDB) LookupUid(uid uint32) (string, error) {
 
 	user_, err := user.LookupId(formatUint32(uid))
 	if err != nil {
-		return "", err
+		return "", errors.WithStack(err)
 	}
 	name = user_.Username
 	db.cacheUser(uid, name)
@@ -81,11 +83,11 @@ func (db *userGroupDB) LookupGroup(name string) (uint32, error) {
 
 	group, err := user.LookupGroup(name)
 	if err != nil {
-		return 0, err
+		return 0, errors.WithStack(err)
 	}
 	gid, err = parseUint32(group.Gid)
 	if err != nil {
-		return 0, err
+		return 0, errors.WithStack(err)
 	}
 	db.cacheGroup(gid, name)
 
@@ -102,7 +104,7 @@ func (db *userGroupDB) LookupGid(gid uint32) (string, error) {
 
 	group, err := user.LookupGroupId(formatUint32(gid))
 	if err != nil {
-		return "", err
+		return "", errors.WithStack(err)
 	}
 	name = group.Name
 	db.cacheGroup(gid, name)
@@ -123,5 +125,8 @@ func formatUint32(i uint32) string {
 
 func parseUint32(s string) (uint32, error) {
 	i, err := strconv.ParseUint(s, 10, 32)
+	if err != nil {
+		return 0, errors.WithStack(err)
+	}
 	return uint32(i), err
 }

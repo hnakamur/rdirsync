@@ -3,7 +3,6 @@ package rdirsync
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"golang.org/x/sync/errgroup"
 
@@ -116,7 +117,7 @@ func (c *Client) statRemote(ctx context.Context, remotePath string) (*fileInfo, 
 func (c *Client) statLocal(localPath string) (*fileInfo, error) {
 	fi, err := os.Stat(localPath)
 	if err != nil {
-		return nil, err
+		return nil, errors.WithStack(err)
 	}
 
 	return c.newFileInfoFromOS(fi)
@@ -129,11 +130,11 @@ func (c *Client) Fetch(ctx context.Context, remotePath, localPath string) error 
 	}
 
 	if rfi == nil {
-		return fmt.Errorf("remote file or directory %q not found", remotePath)
+		return errors.Errorf("remote file or directory %q not found", remotePath)
 	}
 
 	lfi, err := c.statLocal(localPath)
-	if os.IsNotExist(err) {
+	if os.IsNotExist(errors.Cause(err)) {
 		lfi = nil
 	} else if err != nil {
 		return err
@@ -152,11 +153,11 @@ func (c *Client) FetchFile(ctx context.Context, remotePath, localPath string) er
 	}
 
 	if rfi.IsDir() {
-		return fmt.Errorf("expected a remote file but is a directory %q", remotePath)
+		return errors.Errorf("expected a remote file but is a directory %q", remotePath)
 	}
 
 	lfi, err := c.statLocal(localPath)
-	if os.IsNotExist(err) {
+	if os.IsNotExist(errors.Cause(err)) {
 		lfi = nil
 	} else if err != nil {
 		return err
@@ -192,10 +193,10 @@ func (c *Client) fetchFileAndChmod(ctx context.Context, remotePath, localPath st
 		}
 		file, err = os.OpenFile(localPath, os.O_RDWR|os.O_CREATE, 0666)
 		if err != nil {
-			return err
+			return errors.WithStack(err)
 		}
 	} else if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 	defer file.Close()
 
@@ -205,7 +206,7 @@ func (c *Client) fetchFileAndChmod(ctx context.Context, remotePath, localPath st
 		if rfi.Size() < destEnd {
 			err = file.Truncate(rfi.Size())
 			if err != nil {
-				return err
+				return errors.WithStack(err)
 			}
 			destEnd = rfi.Size()
 		}
@@ -221,7 +222,7 @@ func (c *Client) fetchFileAndChmod(ctx context.Context, remotePath, localPath st
 		if err == io.EOF {
 			break
 		} else if err != nil {
-			return err
+			return errors.WithStack(err)
 		}
 
 		if destPos < destEnd {
@@ -230,7 +231,7 @@ func (c *Client) fetchFileAndChmod(ctx context.Context, remotePath, localPath st
 				break
 			}
 			if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-				return err
+				return errors.WithStack(err)
 			}
 			destPos += int64(destN)
 
@@ -241,31 +242,31 @@ func (c *Client) fetchFileAndChmod(ctx context.Context, remotePath, localPath st
 			if destN > 0 {
 				_, err := file.Seek(int64(-destN), os.SEEK_CUR)
 				if err != nil {
-					return err
+					return errors.WithStack(err)
 				}
 			}
 		}
 
 		_, err = file.Write(chunk.Chunk)
 		if err != nil {
-			return err
+			return errors.WithStack(err)
 		}
 	}
 
 	if c.syncOwnerAndGroup {
 		err = os.Chown(localPath, int(rfi.Uid()), int(rfi.Gid()))
 		if err != nil {
-			return err
+			return errors.WithStack(err)
 		}
 	}
 	err = file.Chmod(rfi.Mode().Perm())
 	if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 	if c.syncModTime {
 		err = os.Chtimes(localPath, time.Now(), rfi.ModTime())
 		if err != nil {
-			return err
+			return errors.WithStack(err)
 		}
 	}
 	return nil
@@ -321,7 +322,7 @@ func (c *Client) readRemoteDir(ctx context.Context, remotePath string) ([]*fileI
 		if err == io.EOF {
 			break
 		} else if err != nil {
-			return nil, err
+			return nil, errors.WithStack(err)
 		}
 		allInfos = append(allInfos, infos.Infos...)
 	}
@@ -468,7 +469,7 @@ func (c *Client) FetchDir(ctx context.Context, remotePath, localPath string) err
 	}
 
 	lfi, err := c.statLocal(localPath)
-	if os.IsNotExist(err) {
+	if os.IsNotExist(errors.Cause(err)) {
 		lfi = nil
 	} else if err != nil {
 		return err
@@ -635,17 +636,17 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 		if c.syncOwnerAndGroup {
 			err := os.Chown(n.localPath, int(n.uid), int(n.gid))
 			if err != nil {
-				return err
+				return errors.WithStack(err)
 			}
 		}
 		err := os.Chmod(n.localPath, n.mode.Perm())
 		if err != nil {
-			return err
+			return errors.WithStack(err)
 		}
 		if c.syncModTime {
 			err = os.Chtimes(n.localPath, time.Now(), n.modTime)
 			if err != nil {
-				return err
+				return errors.WithStack(err)
 			}
 		}
 		return nil
@@ -677,10 +678,10 @@ type postProcessDirTreeNode struct {
 
 func (c *Client) Send(ctx context.Context, localPath, remotePath string) error {
 	lfi, err := c.statLocal(localPath)
-	if os.IsNotExist(err) {
+	if os.IsNotExist(errors.Cause(err)) {
 		lfi = nil
 	} else if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 
 	if lfi.IsDir() {
@@ -697,10 +698,10 @@ func (c *Client) Send(ctx context.Context, localPath, remotePath string) error {
 
 func (c *Client) SendFile(ctx context.Context, localPath, remotePath string) error {
 	lfi, err := c.statLocal(localPath)
-	if os.IsNotExist(err) {
+	if os.IsNotExist(errors.Cause(err)) {
 		lfi = nil
 	} else if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 
 	if lfi.IsDir() {
@@ -722,7 +723,7 @@ func (c *Client) sendFileAndChmod(ctx context.Context, localPath, remotePath str
 
 	file, err := os.Open(localPath)
 	if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 	defer file.Close()
 
@@ -797,7 +798,7 @@ func (c *Client) SendDir(ctx context.Context, localPath, remotePath string) erro
 	}
 
 	if !lfi.IsDir() {
-		return fmt.Errorf("expected a local directory but is a file %q", localPath)
+		return errors.Errorf("expected a local directory but is a file %q", localPath)
 	}
 
 	return c.sendDirAndChmod(ctx, localPath, remotePath, lfi)
@@ -911,8 +912,10 @@ func (c *Client) ensureLocalDirExists(path string, mode os.FileMode, fi *fileInf
 	}
 
 	err := os.MkdirAll(path, mode.Perm())
-	if !os.IsPermission(err) {
-		return err
+	if err == nil {
+		return nil
+	} else if !os.IsPermission(err) {
+		return errors.WithStack(err)
 	}
 
 	err = makeReadWritableRecursive(path)
@@ -920,7 +923,12 @@ func (c *Client) ensureLocalDirExists(path string, mode os.FileMode, fi *fileInf
 		return err
 	}
 
-	return os.MkdirAll(path, mode.Perm())
+	err = os.MkdirAll(path, mode.Perm())
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	return nil
 }
 
 func (c *Client) ensureLocalNotExist(path string, fi *fileInfo) error {

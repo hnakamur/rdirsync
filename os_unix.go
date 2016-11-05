@@ -3,10 +3,11 @@ package rdirsync
 // +build !windows
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"github.com/pkg/errors"
 )
 
 func ensureDirOrFileNotExist(path string) error {
@@ -22,10 +23,10 @@ func ensureDirOrFileNotExist(path string) error {
 		if os.IsNotExist(err) {
 			return nil
 		} else if err != nil {
-			return err
+			return errors.WithStack(err)
 		}
 	} else if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 
 	if fi.IsDir() {
@@ -37,8 +38,10 @@ func ensureDirOrFileNotExist(path string) error {
 
 func ensureDirNotExist(path string) error {
 	err := os.RemoveAll(path)
-	if !os.IsPermission(err) {
-		return err
+	if err == nil {
+		return nil
+	} else if !os.IsPermission(err) {
+		return errors.WithStack(err)
 	}
 
 	err = makeReadWritableRecursive(path)
@@ -46,20 +49,32 @@ func ensureDirNotExist(path string) error {
 		return err
 	}
 
-	return os.RemoveAll(path)
+	err = os.RemoveAll(path)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	return nil
 }
 
 func ensureFileNotExist(path string) error {
 	err := os.Remove(path)
-	if !os.IsPermission(err) {
-		return err
+	if err == nil {
+		return nil
+	} else if !os.IsPermission(err) {
+		return errors.WithStack(err)
 	}
 
 	err = makeReadWritableParentDir(path)
 	if err != nil {
 		return err
 	}
-	return os.Remove(path)
+	err = os.Remove(path)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	return nil
 }
 
 func makeReadWritable(path string) error {
@@ -89,7 +104,7 @@ func makeReadWritableParentDir(path string) error {
 	dir := filepath.Dir(path)
 	fi, err := os.Stat(dir)
 	if err != nil && !os.IsPermission(err) {
-		return err
+		return errors.WithStack(err)
 	}
 	mode := fi.Mode().Perm()
 
@@ -110,7 +125,7 @@ func makeReadWritableParentDir(path string) error {
 	if mode != fi.Mode().Perm() {
 		err = os.Chmod(dir, mode)
 		if err != nil {
-			return err
+			return errors.WithStack(err)
 		}
 	}
 	return nil
@@ -121,7 +136,7 @@ func makeReadWritableOneEntry(path string) error {
 	if os.IsNotExist(err) {
 		return nil
 	} else if err != nil && !os.IsPermission(err) {
-		return err
+		return errors.WithStack(err)
 	}
 	mode := fi.Mode().Perm()
 
@@ -152,7 +167,7 @@ func makeReadWritableOneEntry(path string) error {
 	if mode != fi.Mode().Perm() {
 		err = os.Chmod(path, mode)
 		if err != nil {
-			return err
+			return errors.WithStack(err)
 		}
 	}
 	return nil

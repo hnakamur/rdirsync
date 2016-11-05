@@ -62,7 +62,7 @@ func TestFetch(t *testing.T) {
 		ctx := context.Background()
 		err = client.Fetch(ctx, srcDir, destDir)
 		if err != nil {
-			t.Error(err)
+			t.Errorf("%+v", err)
 			return err
 		}
 		return nil
