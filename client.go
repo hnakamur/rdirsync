@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/hnakamur/rdirsync/internal"
 	"github.com/hnakamur/rdirsync/pb"
 	"google.golang.org/grpc"
 )
@@ -200,7 +201,7 @@ func (c *Client) fetchFileAndChmod(ctx context.Context, remotePath, localPath st
 
 	file, err := os.OpenFile(localPath, os.O_RDWR|os.O_CREATE, 0666)
 	if os.IsPermission(err) {
-		err = makeReadWritable(localPath)
+		err = internal.MakeReadWritable(localPath)
 		if err != nil {
 			return err
 		}
@@ -902,7 +903,7 @@ func (c *Client) ensureLocalDirExists(path string, mode os.FileMode, fi *fileInf
 		if fi.IsDir() {
 			return nil
 		} else {
-			err := ensureFileNotExist(path)
+			err := internal.EnsureFileNotExist(path)
 			if err != nil {
 				return err
 			}
@@ -916,7 +917,7 @@ func (c *Client) ensureLocalDirExists(path string, mode os.FileMode, fi *fileInf
 		return errors.WithStack(err)
 	}
 
-	err = makeReadWritableRecursive(path)
+	err = internal.MakeReadWritableRecursive(path)
 	if err != nil {
 		return err
 	}
@@ -935,8 +936,8 @@ func (c *Client) ensureLocalNotExist(path string, fi *fileInfo) error {
 	}
 
 	if fi.IsDir() {
-		return ensureDirNotExist(path)
+		return internal.EnsureDirNotExist(path)
 	} else {
-		return ensureFileNotExist(path)
+		return internal.EnsureFileNotExist(path)
 	}
 }

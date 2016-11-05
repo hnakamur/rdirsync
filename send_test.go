@@ -3,13 +3,13 @@ package rdirsync_test
 import (
 	"context"
 	"io/ioutil"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/hnakamur/rdirsync"
+	"github.com/hnakamur/rdirsync/internal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
 )
@@ -48,13 +48,13 @@ func TestSend(t *testing.T) {
 		client, err := rdirsync.NewClient(conn,
 			rdirsync.SetSyncModTime(true))
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("%+v", err)
 		}
 
 		ctx := context.Background()
 		err = client.Send(ctx, srcDir, destDir)
 		if err != nil {
-			t.Fatal(err)
+			t.Errorf("%+v", err)
 		}
 		return nil
 	}
@@ -127,17 +127,84 @@ func TestSend(t *testing.T) {
 				makeDirOp(buildSrcPath("dirorfile1"), 0700),
 			},
 		},
+		{
+			tree: testFileTreeNode{
+				name: "dir1", mode: os.ModeDir | 0700,
+				children: []testFileTreeNode{
+					{name: "file1-1", mode: 0600, size: 64},
+				},
+			},
+			modifications: []modificationOp{
+				chmodOp(buildSrcPath("dir1"), 0500),
+			},
+		},
+		{
+			tree: testFileTreeNode{
+				name: "dir1", mode: os.ModeDir | 0700,
+				children: []testFileTreeNode{
+					{name: "file1-1", mode: 0400, size: 64},
+				},
+			},
+			modifications: []modificationOp{
+				chmodOp(buildSrcPath("dir1", "file1-1"), 0200),
+				removeFileOp(buildSrcPath("dir1", "file1-1")),
+			},
+		},
+		{
+			tree: testFileTreeNode{
+				name: "dir1", mode: os.ModeDir | 0500,
+				children: []testFileTreeNode{
+					{name: "file1-1", mode: 0400, size: 64},
+				},
+			},
+			modifications: []modificationOp{
+				chmodOp(buildSrcPath("dir1"), 0700),
+				chmodOp(buildSrcPath("dir1", "file1-1"), 0200),
+				removeFileOp(buildSrcPath("dir1", "file1-1")),
+				chmodOp(buildSrcPath("dir1"), 0500),
+			},
+		},
+		{
+			tree: testFileTreeNode{
+				name: "dir1", mode: os.ModeDir | 0700,
+				children: []testFileTreeNode{
+					{name: "file1-1", mode: 0400, size: 64},
+				},
+			},
+			modifications: []modificationOp{
+				chmodOp(buildSrcPath("dir1", "file1-1"), 0600),
+				writeRandomOp(buildSrcPath("dir1", "file1-1"), 0, 128),
+				chmodOp(buildSrcPath("dir1", "file1-1"), 0400),
+			},
+		},
+		{
+			tree: testFileTreeNode{
+				name: "dir1", mode: os.ModeDir | 0700,
+				children: []testFileTreeNode{
+					{
+						name: "dir2", mode: os.ModeDir | 0700,
+						children: []testFileTreeNode{
+							{name: "file3-1", mode: 0400, size: 64},
+						},
+					},
+					{name: "file1-1", mode: 0400, size: 48},
+				},
+			},
+			modifications: []modificationOp{
+				removeDirOp(buildSrcPath("dir1", "dir2")),
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
 		err = os.MkdirAll(srcDir, 0700)
 		if err != nil {
-			log.Fatal(err)
+			t.Fatalf("%+v", err)
 		}
 
 		err = buildFileTree(srcDir, testCase.tree)
 		if err != nil {
-			log.Fatal(err)
+			t.Fatalf("%+v", err)
 		}
 
 		err = runSend()
@@ -149,7 +216,7 @@ func TestSend(t *testing.T) {
 		for _, op := range testCase.modifications {
 			err := op()
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("%+v", err)
 			}
 		}
 
@@ -159,13 +226,13 @@ func TestSend(t *testing.T) {
 		}
 		sameDirTreeContent(t, destDir, srcDir)
 
-		err = os.RemoveAll(srcDir)
+		err = internal.EnsureDirNotExist(srcDir)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("%+v", err)
 		}
-		err = os.RemoveAll(destDir)
+		err = internal.EnsureDirNotExist(destDir)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("%+v", err)
 		}
 	}
 }

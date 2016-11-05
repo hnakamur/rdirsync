@@ -10,7 +10,9 @@ import (
 
 	context "golang.org/x/net/context"
 
+	"github.com/hnakamur/rdirsync/internal"
 	"github.com/hnakamur/rdirsync/pb"
+	"github.com/pkg/errors"
 )
 
 type server struct {
@@ -95,6 +97,16 @@ func (s *server) ReadDir(req *pb.ReadDirRequest, stream pb.RDirSync_ReadDirServe
 	return nil
 }
 
+func selectDirAndRegularFiles(fis []os.FileInfo) []os.FileInfo {
+	ret := make([]os.FileInfo, 0, len(fis))
+	for _, fi := range fis {
+		if fi.IsDir() || fi.Mode().IsRegular() {
+			ret = append(ret, fi)
+		}
+	}
+	return ret
+}
+
 func (s *server) Chown(ctx context.Context, req *pb.ChownRequest) (*pb.Empty, error) {
 	uid, err := s.userGroupDB.LookupUser(req.Owner)
 	if err != nil {
@@ -121,12 +133,12 @@ func (s *server) Chtimes(ctx context.Context, req *pb.ChtimesRequest) (*pb.Empty
 }
 
 func (s *server) EnsureDirExists(ctx context.Context, req *pb.EnsureDirExistsRequest) (*pb.Empty, error) {
-	err := ensureDirExists(req.Path, 0777)
+	err := internal.EnsureDirExists(req.Path, 0700)
 	return new(pb.Empty), err
 }
 
 func (s *server) EnsureNotExist(ctx context.Context, req *pb.EnsureNotExistRequest) (*pb.Empty, error) {
-	err := ensureDirOrFileNotExist(req.Path)
+	err := internal.EnsureDirOrFileNotExist(req.Path)
 	return new(pb.Empty), err
 }
 
@@ -145,29 +157,29 @@ func (s *server) SendFile(stream pb.RDirSync_SendFileServer) error {
 		}
 
 		if file == nil {
-			err = ensureNotDir(chunk.Path, nil)
+			err = internal.EnsureNotDir(chunk.Path)
 			if err != nil {
 				return err
 			}
 
 			file, err = os.OpenFile(chunk.Path, os.O_RDWR|os.O_CREATE, 0666)
 			if os.IsPermission(err) {
-				err = makeReadWritable(chunk.Path)
+				err = internal.MakeReadWritable(chunk.Path)
 				if err != nil {
 					return err
 				}
 				file, err = os.OpenFile(chunk.Path, os.O_RDWR|os.O_CREATE, 0666)
 				if err != nil {
-					return err
+					return errors.WithStack(err)
 				}
 			} else if err != nil {
-				return err
+				return errors.WithStack(err)
 			}
 			defer file.Close()
 
 			fi, err := file.Stat()
 			if err != nil {
-				return err
+				return errors.WithStack(err)
 			}
 			destEnd = fi.Size()
 

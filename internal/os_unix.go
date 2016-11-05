@@ -1,4 +1,4 @@
-package rdirsync
+package internal
 
 // +build !windows
 
@@ -10,33 +10,84 @@ import (
 	"github.com/pkg/errors"
 )
 
-func ensureDirOrFileNotExist(path string) error {
-	fi, err := os.Stat(path)
-	if os.IsNotExist(err) {
+func EnsureDirExists(path string, mode os.FileMode) error {
+	fi, err := tryHardStat(path)
+	if err == nil && fi.IsDir() {
+		return nil
+	} else if err != nil && !os.IsNotExist(errors.Cause(err)) {
+		return err
+	}
+
+	if err == nil && !fi.IsDir() {
+		err = EnsureFileNotExist(path)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = os.MkdirAll(path, mode.Perm())
+	if err == nil {
 		return nil
 	} else if os.IsPermission(err) {
 		err = makeReadWritableParentDir(path)
 		if err != nil {
 			return err
 		}
-		fi, err = os.Stat(path)
-		if os.IsNotExist(err) {
-			return nil
-		} else if err != nil {
+		err = os.MkdirAll(path, mode.Perm())
+		if err != nil {
 			return errors.WithStack(err)
 		}
+	}
+	return nil
+}
+
+func EnsureNotDir(path string) error {
+	fi, err := tryHardStat(path)
+	if os.IsNotExist(errors.Cause(err)) {
+		return nil
 	} else if err != nil {
-		return errors.WithStack(err)
+		return err
 	}
 
 	if fi.IsDir() {
-		return ensureDirNotExist(path)
+		return EnsureDirNotExist(path)
+	}
+	return nil
+}
+
+func tryHardStat(path string) (os.FileInfo, error) {
+	fi, err := os.Stat(path)
+	if os.IsPermission(err) {
+		err = makeReadWritableParentDir(path)
+		if err != nil {
+			return nil, err
+		}
+		fi, err = os.Stat(path)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+	} else if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	return fi, nil
+}
+
+func EnsureDirOrFileNotExist(path string) error {
+	fi, err := tryHardStat(path)
+	if os.IsNotExist(errors.Cause(err)) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+
+	if fi.IsDir() {
+		return EnsureDirNotExist(path)
 	} else {
-		return ensureFileNotExist(path)
+		return EnsureFileNotExist(path)
 	}
 }
 
-func ensureDirNotExist(path string) error {
+func EnsureDirNotExist(path string) error {
 	err := os.RemoveAll(path)
 	if err == nil {
 		return nil
@@ -44,7 +95,7 @@ func ensureDirNotExist(path string) error {
 		return errors.WithStack(err)
 	}
 
-	err = makeReadWritableRecursive(path)
+	err = MakeReadWritableRecursive(path)
 	if err != nil {
 		return err
 	}
@@ -57,7 +108,7 @@ func ensureDirNotExist(path string) error {
 	return nil
 }
 
-func ensureFileNotExist(path string) error {
+func EnsureFileNotExist(path string) error {
 	err := os.Remove(path)
 	if err == nil {
 		return nil
@@ -77,7 +128,7 @@ func ensureFileNotExist(path string) error {
 	return nil
 }
 
-func makeReadWritable(path string) error {
+func MakeReadWritable(path string) error {
 	err := makeReadWritableParentDir(path)
 	if err != nil {
 		return err
@@ -86,7 +137,7 @@ func makeReadWritable(path string) error {
 	return makeReadWritableOneEntry(path)
 }
 
-func makeReadWritableRecursive(path string) error {
+func MakeReadWritableRecursive(path string) error {
 	err := makeReadWritableParentDir(path)
 	if err != nil {
 		return err

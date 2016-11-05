@@ -3,17 +3,18 @@ package rdirsync_test
 import (
 	"context"
 	"crypto/rand"
-	"errors"
 	"io"
 	"io/ioutil"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
 
+	"github.com/pkg/errors"
+
 	"github.com/hnakamur/rdirsync"
+	"github.com/hnakamur/rdirsync/internal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
 )
@@ -221,11 +222,11 @@ func TestFetch(t *testing.T) {
 		}
 		sameDirTreeContent(t, destDir, srcDir)
 
-		err = ensureDirNotExist(srcDir)
+		err = internal.EnsureDirNotExist(srcDir)
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = ensureDirNotExist(destDir)
+		err = internal.EnsureDirNotExist(destDir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -236,7 +237,11 @@ type modificationOp func() error
 
 func truncateOp(path string, size int64) modificationOp {
 	return func() error {
-		return os.Truncate(path, size)
+		err := os.Truncate(path, size)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		return nil
 	}
 }
 
@@ -244,34 +249,49 @@ func writeRandomOp(path string, offset, length int64) modificationOp {
 	return func() error {
 		file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0666)
 		if err != nil {
-			return err
+			return errors.WithStack(err)
 		}
 		defer file.Close()
 
 		_, err = file.Seek(offset, os.SEEK_SET)
 		if err != nil {
-			return err
+			return errors.WithStack(err)
 		}
 		_, err = io.CopyN(file, rand.Reader, length)
-		return err
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		return nil
 	}
 }
 
 func removeFileOp(path string) modificationOp {
 	return func() error {
-		return os.Remove(path)
+		err := os.Remove(path)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		return nil
 	}
 }
 
 func removeDirOp(path string) modificationOp {
 	return func() error {
-		return os.RemoveAll(path)
+		err := os.RemoveAll(path)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		return nil
 	}
 }
 
 func makeDirOp(path string, mode os.FileMode) modificationOp {
 	return func() error {
-		return os.MkdirAll(path, mode)
+		err := os.MkdirAll(path, mode)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		return nil
 	}
 }
 
@@ -279,127 +299,4 @@ func chmodOp(path string, mode os.FileMode) modificationOp {
 	return func() error {
 		return os.Chmod(path, mode)
 	}
-}
-
-func ensureDirNotExist(path string) error {
-	err := os.RemoveAll(path)
-	if !os.IsPermission(err) {
-		return err
-	}
-
-	err = makeReadWritableRecursive(path)
-	if err != nil {
-		return err
-	}
-
-	return os.RemoveAll(path)
-}
-
-func ensureFileNotExist(path string) error {
-	err := os.Remove(path)
-	if !os.IsPermission(err) {
-		return err
-	}
-
-	err = makeReadWritableParentDir(path)
-	if err != nil {
-		return err
-	}
-	return os.Remove(path)
-}
-
-func makeReadWritable(path string) error {
-	err := makeReadWritableParentDir(path)
-	if err != nil {
-		return err
-	}
-
-	return makeReadWritableOneEntry(path)
-}
-
-func makeReadWritableRecursive(path string) error {
-	err := makeReadWritableParentDir(path)
-	if err != nil {
-		return err
-	}
-
-	return filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		return makeReadWritableOneEntry(path)
-	})
-}
-
-func makeReadWritableParentDir(path string) error {
-	dir := filepath.Dir(path)
-	fi, err := os.Stat(dir)
-	if err != nil && !os.IsPermission(err) {
-		return err
-	}
-	mode := fi.Mode().Perm()
-
-	myUid := uint32(os.Getuid())
-	myGid := uint32(os.Getgid())
-
-	sys, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok {
-		return errors.New("cannot cast file info to syscall.Stat_t")
-	}
-	if sys.Uid == myUid {
-		mode |= 0700
-	} else if sys.Gid == myGid {
-		mode |= 0070
-	} else {
-		mode |= 0007
-	}
-	if mode != fi.Mode().Perm() {
-		err = os.Chmod(dir, mode)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func makeReadWritableOneEntry(path string) error {
-	fi, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		return nil
-	} else if err != nil && !os.IsPermission(err) {
-		return err
-	}
-	mode := fi.Mode().Perm()
-
-	sys, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok {
-		return errors.New("cannot cast file info to syscall.Stat_t")
-	}
-
-	myUid := uint32(os.Getuid())
-	myGid := uint32(os.Getgid())
-	if fi.IsDir() {
-		if sys.Uid == myUid {
-			mode |= 0700
-		} else if sys.Gid == myGid {
-			mode |= 0070
-		} else {
-			mode |= 0007
-		}
-	} else {
-		if sys.Uid == myUid {
-			mode |= 0600
-		} else if sys.Gid == myGid {
-			mode |= 0060
-		} else {
-			mode |= 0006
-		}
-	}
-	if mode != fi.Mode().Perm() {
-		err = os.Chmod(path, mode)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
