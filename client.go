@@ -479,8 +479,7 @@ func (c *Client) FetchDir(ctx context.Context, remotePath, localPath string) err
 
 func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath string, rfi, lfi *fileInfo) error {
 	g, ctx := errgroup.WithContext(ctx)
-	fetchFileWorks := make(chan fetchFileWork)
-	deleteWorks := make(chan deleteWork)
+	fileWorks := make(chan fileWork)
 
 	var walk func(ctx context.Context, remotePath, localPath string, rfi, lfi *fileInfo, treeNode *postProcessDirTreeNode) error
 	walk = func(ctx context.Context, remotePath, localPath string, rfi, lfi *fileInfo, treeNode *postProcessDirTreeNode) error {
@@ -504,12 +503,12 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 			for li < len(localInfos) && localInfos[li].Name() < rfi.Name() {
 				if !c.keepDeletedFiles {
 					lfi := localInfos[li]
-					work := deleteWork{
-						localPath: filepath.Join(localPath, lfi.Name()),
-						lfi:       lfi,
-					}
+					work := deleteWork(
+						filepath.Join(localPath, lfi.Name()),
+						lfi,
+					)
 					select {
-					case deleteWorks <- work:
+					case fileWorks <- work:
 					case <-ctx.Done():
 						return ctx.Err()
 					}
@@ -542,14 +541,14 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 					return err
 				}
 			} else {
-				work := fetchFileWork{
-					remotePath: filepath.Join(remotePath, rfi.Name()),
-					localPath:  filepath.Join(localPath, rfi.Name()),
-					rfi:        rfi,
-					lfi:        lfi,
-				}
+				work := fetchFileWork(
+					filepath.Join(remotePath, rfi.Name()),
+					filepath.Join(localPath, rfi.Name()),
+					rfi,
+					lfi,
+				)
 				select {
-				case fetchFileWorks <- work:
+				case fileWorks <- work:
 				case <-ctx.Done():
 					return ctx.Err()
 				}
@@ -560,12 +559,12 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 			for li < len(localInfos) {
 				lfi := localInfos[li]
 				li++
-				work := deleteWork{
-					localPath: filepath.Join(localPath, lfi.Name()),
-					lfi:       lfi,
-				}
+				work := deleteWork(
+					filepath.Join(localPath, lfi.Name()),
+					lfi,
+				)
 				select {
-				case deleteWorks <- work:
+				case fileWorks <- work:
 				case <-ctx.Done():
 					return ctx.Err()
 				}
@@ -582,41 +581,21 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 		gid:       rfi.Gid(),
 	}
 	g.Go(func() error {
-		defer close(fetchFileWorks)
-		defer close(deleteWorks)
+		defer close(fileWorks)
 		return walk(ctx, remotePath, localPath, rfi, lfi, treeRoot)
 	})
 
-	const numFetchWorkers = 8
-	for i := 0; i < numFetchWorkers; i++ {
+	const numFileWorkers = 8
+	for i := 0; i < numFileWorkers; i++ {
 		g.Go(func() error {
-			for w := range fetchFileWorks {
-				err := c.fetchFileAndChmod(ctx,
-					w.remotePath,
-					w.localPath,
-					w.rfi,
-					w.lfi)
+			for w := range fileWorks {
+				err := w(c, ctx)
 				if err != nil {
 					return err
 				}
 			}
 			return nil
 		})
-	}
-
-	if !c.keepDeletedFiles {
-		const numDeleteWorkers = 2
-		for i := 0; i < numDeleteWorkers; i++ {
-			g.Go(func() error {
-				for w := range deleteWorks {
-					err := c.ensureLocalNotExist(w.localPath, w.lfi)
-					if err != nil {
-						return err
-					}
-				}
-				return nil
-			})
-		}
 	}
 
 	err := g.Wait()
@@ -655,16 +634,22 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 	return postWalk(ctx, treeRoot)
 }
 
-type fetchFileWork struct {
-	remotePath string
-	localPath  string
-	rfi        *fileInfo
-	lfi        *fileInfo
+type fileWork func(c *Client, ctx context.Context) error
+
+func fetchFileWork(remotePath, localPath string, rfi, lfi *fileInfo) fileWork {
+	return func(c *Client, ctx context.Context) error {
+		return c.fetchFileAndChmod(ctx,
+			remotePath,
+			localPath,
+			rfi,
+			lfi)
+	}
 }
 
-type deleteWork struct {
-	localPath string
-	lfi       *fileInfo
+func deleteWork(localPath string, lfi *fileInfo) fileWork {
+	return func(c *Client, ctx context.Context) error {
+		return c.ensureLocalNotExist(localPath, lfi)
+	}
 }
 
 type postProcessDirTreeNode struct {
