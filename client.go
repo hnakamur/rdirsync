@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -28,6 +29,7 @@ type Client struct {
 	syncModTime       bool
 	updateOnly        bool
 	syncOwnerAndGroup bool
+	fileWorkerCount   int
 	userGroupDB       *userGroupDB
 }
 
@@ -35,9 +37,10 @@ type ClientOption func(*Client) error
 
 func NewClient(cc *grpc.ClientConn, option ...ClientOption) (*Client, error) {
 	c := &Client{
-		client:      pb.NewRDirSyncClient(cc),
-		bufSize:     64 * 1024,
-		atMostCount: 1024,
+		client:          pb.NewRDirSyncClient(cc),
+		bufSize:         64 * 1024,
+		atMostCount:     1024,
+		fileWorkerCount: 2 * runtime.NumCPU(),
 	}
 
 	for _, opt := range option {
@@ -99,6 +102,16 @@ func SetSyncOwnerAndGroup(syncOwnerAndGroup bool) ClientOption {
 			c.userGroupDB = newUserGroupDB()
 		}
 		c.syncOwnerAndGroup = syncOwnerAndGroup
+		return nil
+	}
+}
+
+func SetFileWorkerCount(fileWorkerCount int) ClientOption {
+	return func(c *Client) error {
+		if fileWorkerCount <= 0 {
+			return errors.New("file worker count must be greater than zero")
+		}
+		c.fileWorkerCount = fileWorkerCount
 		return nil
 	}
 }
