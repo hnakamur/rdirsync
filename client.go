@@ -836,12 +836,6 @@ func (c *Client) sendDirAndChmod(ctx context.Context, localPath, remotePath stri
 		for ri < len(remoteInfos) && remoteInfos[ri].Name() == lfi.Name() {
 			rfi = remoteInfos[ri]
 			ri++
-			if rfi.IsDir() != lfi.IsDir() {
-				err = c.ensureNotExist(ctx, filepath.Join(remotePath, rfi.Name()))
-				if err != nil {
-					return err
-				}
-			}
 		}
 
 		if lfi.IsDir() {
