@@ -18,7 +18,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/hnakamur/rdirsync/internal"
-	"github.com/hnakamur/rdirsync/pb"
+	"github.com/hnakamur/rdirsync/internal/pb"
 	"google.golang.org/grpc"
 )
 

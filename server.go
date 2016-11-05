@@ -11,7 +11,7 @@ import (
 	context "golang.org/x/net/context"
 
 	"github.com/hnakamur/rdirsync/internal"
-	"github.com/hnakamur/rdirsync/pb"
+	"github.com/hnakamur/rdirsync/internal/pb"
 	"github.com/pkg/errors"
 )
 
