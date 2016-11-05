@@ -538,11 +538,11 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 
 			if rfi.IsDir() {
 				childNode := &postProcessDirTreeNode{
-					localPath: filepath.Join(localPath, rfi.Name()),
-					mode:      rfi.Mode(),
-					modTime:   rfi.ModTime(),
-					uid:       rfi.Uid(),
-					gid:       rfi.Gid(),
+					path:    filepath.Join(localPath, rfi.Name()),
+					mode:    rfi.Mode(),
+					modTime: rfi.ModTime(),
+					uid:     rfi.Uid(),
+					gid:     rfi.Gid(),
 				}
 				treeNode.children = append(treeNode.children, childNode)
 				err = walk(ctx,
@@ -588,19 +588,18 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 	}
 
 	treeRoot := &postProcessDirTreeNode{
-		localPath: localPath,
-		mode:      rfi.Mode(),
-		modTime:   rfi.ModTime(),
-		uid:       rfi.Uid(),
-		gid:       rfi.Gid(),
+		path:    localPath,
+		mode:    rfi.Mode(),
+		modTime: rfi.ModTime(),
+		uid:     rfi.Uid(),
+		gid:     rfi.Gid(),
 	}
 	g.Go(func() error {
 		defer close(fileWorks)
 		return walk(ctx, remotePath, localPath, rfi, lfi, treeRoot)
 	})
 
-	const numFileWorkers = 8
-	for i := 0; i < numFileWorkers; i++ {
+	for i := 0; i < c.fileWorkerCount; i++ {
 		g.Go(func() error {
 			for w := range fileWorks {
 				err := w(c, ctx)
@@ -627,17 +626,17 @@ func (c *Client) fetchDirAndChmod(ctx context.Context, remotePath, localPath str
 		}
 
 		if c.syncOwnerAndGroup {
-			err := os.Chown(n.localPath, int(n.uid), int(n.gid))
+			err := os.Chown(n.path, int(n.uid), int(n.gid))
 			if err != nil {
 				return errors.WithStack(err)
 			}
 		}
-		err := os.Chmod(n.localPath, n.mode.Perm())
+		err := os.Chmod(n.path, n.mode.Perm())
 		if err != nil {
 			return errors.WithStack(err)
 		}
 		if c.syncModTime {
-			err = os.Chtimes(n.localPath, time.Now(), n.modTime)
+			err = os.Chtimes(n.path, time.Now(), n.modTime)
 			if err != nil {
 				return errors.WithStack(err)
 			}
@@ -667,12 +666,12 @@ func deleteWork(localPath string, lfi *fileInfo) fileWork {
 }
 
 type postProcessDirTreeNode struct {
-	localPath string
-	mode      os.FileMode
-	modTime   time.Time
-	uid       uint32
-	gid       uint32
-	children  []*postProcessDirTreeNode
+	path     string
+	mode     os.FileMode
+	modTime  time.Time
+	uid      uint32
+	gid      uint32
+	children []*postProcessDirTreeNode
 }
 
 func (c *Client) Send(ctx context.Context, localPath, remotePath string) error {
@@ -803,89 +802,169 @@ func (c *Client) SendDir(ctx context.Context, localPath, remotePath string) erro
 	return c.sendDirAndChmod(ctx, localPath, remotePath, lfi)
 }
 
-func (c *Client) sendDirAndChmod(ctx context.Context, localPath, remotePath string, fi *fileInfo) error {
-	err := c.ensureDirExists(ctx, remotePath)
-	if err != nil {
-		return err
-	}
+func (c *Client) sendDirAndChmod(ctx context.Context, localPath, remotePath string, lfi *fileInfo) error {
+	g, ctx2 := errgroup.WithContext(ctx)
+	fileWorks := make(chan fileWork)
 
-	remoteInfos, err := c.readRemoteDir(ctx, remotePath)
-	if err != nil {
-		return err
-	}
+	var walk func(ctx context.Context, localPath, remotePath string, lfi *fileInfo, treeNode *postProcessDirTreeNode) error
+	walk = func(ctx context.Context, localPath, remotePath string, lfi *fileInfo, treeNode *postProcessDirTreeNode) error {
+		err := c.ensureDirExists(ctx, remotePath)
+		if err != nil {
+			return err
+		}
 
-	localInfos, err := c.readLocalDir(localPath)
-	if err != nil {
-		return err
-	}
+		remoteInfos, err := c.readRemoteDir(ctx, remotePath)
+		if err != nil {
+			return err
+		}
 
-	ri := 0
-	for _, lfi := range localInfos {
-		for ri < len(remoteInfos) && remoteInfos[ri].Name() < lfi.Name() {
-			if !c.keepDeletedFiles {
+		localInfos, err := c.readLocalDir(localPath)
+		if err != nil {
+			return err
+		}
+
+		ri := 0
+		for _, lfi := range localInfos {
+			for ri < len(remoteInfos) && remoteInfos[ri].Name() < lfi.Name() {
+				if !c.keepDeletedFiles {
+					rfi := remoteInfos[ri]
+					work := ensureRemoteNotExistWork(filepath.Join(remotePath, rfi.Name()))
+					select {
+					case fileWorks <- work:
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				}
+				ri++
+			}
+
+			var rfi *fileInfo
+			for ri < len(remoteInfos) && remoteInfos[ri].Name() == lfi.Name() {
+				rfi = remoteInfos[ri]
+				ri++
+			}
+
+			if lfi.IsDir() {
+				childNode := &postProcessDirTreeNode{
+					path:    filepath.Join(remotePath, lfi.Name()),
+					mode:    lfi.Mode(),
+					modTime: lfi.ModTime(),
+					uid:     lfi.Uid(),
+					gid:     lfi.Gid(),
+				}
+				treeNode.children = append(treeNode.children, childNode)
+				err = walk(ctx,
+					filepath.Join(localPath, lfi.Name()),
+					filepath.Join(remotePath, lfi.Name()),
+					lfi,
+					childNode)
+				if err != nil {
+					return err
+				}
+			} else {
+				work := sendFileWork(
+					filepath.Join(localPath, lfi.Name()),
+					filepath.Join(remotePath, lfi.Name()),
+					lfi,
+					rfi)
+				select {
+				case fileWorks <- work:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+		}
+
+		if !c.keepDeletedFiles {
+			for ri < len(remoteInfos) {
 				rfi := remoteInfos[ri]
-				err = c.ensureNotExist(ctx, filepath.Join(remotePath, rfi.Name()))
+				ri++
+				work := ensureRemoteNotExistWork(filepath.Join(remotePath, rfi.Name()))
+				select {
+				case fileWorks <- work:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+		}
+
+		return nil
+	}
+
+	treeRoot := &postProcessDirTreeNode{
+		path:    remotePath,
+		mode:    lfi.Mode(),
+		modTime: lfi.ModTime(),
+		uid:     lfi.Uid(),
+		gid:     lfi.Gid(),
+	}
+	g.Go(func() error {
+		defer close(fileWorks)
+		return walk(ctx2, localPath, remotePath, lfi, treeRoot)
+	})
+
+	for i := 0; i < c.fileWorkerCount; i++ {
+		g.Go(func() error {
+			for w := range fileWorks {
+				err := w(c, ctx)
 				if err != nil {
 					return err
 				}
 			}
-			ri++
-		}
-
-		var rfi *fileInfo
-		for ri < len(remoteInfos) && remoteInfos[ri].Name() == lfi.Name() {
-			rfi = remoteInfos[ri]
-			ri++
-		}
-
-		if lfi.IsDir() {
-			err = c.sendDirAndChmod(ctx,
-				filepath.Join(localPath, lfi.Name()),
-				filepath.Join(remotePath, lfi.Name()),
-				lfi)
-			if err != nil {
-				return err
-			}
-		} else {
-			err = c.sendFileAndChmod(ctx,
-				filepath.Join(localPath, lfi.Name()),
-				filepath.Join(remotePath, lfi.Name()),
-				lfi,
-				rfi)
-			if err != nil {
-				return err
-			}
-		}
+			return nil
+		})
 	}
 
-	if !c.keepDeletedFiles {
-		for ri < len(remoteInfos) {
-			rfi := remoteInfos[ri]
-			ri++
-			err = c.ensureNotExist(ctx, filepath.Join(remotePath, rfi.Name()))
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	if c.syncOwnerAndGroup {
-		err = c.chown(ctx, localPath, fi.Uid(), fi.Gid())
-		if err != nil {
-			return err
-		}
-	}
-	err = c.chmod(ctx, remotePath, fi.Mode())
+	err := g.Wait()
 	if err != nil {
 		return err
 	}
-	if c.syncModTime {
-		err = c.chtimes(ctx, remotePath, time.Now(), fi.ModTime())
+
+	var postWalk func(ctx context.Context, n *postProcessDirTreeNode) error
+	postWalk = func(ctx context.Context, n *postProcessDirTreeNode) error {
+		for _, child := range n.children {
+			err := postWalk(ctx, child)
+			if err != nil {
+				return err
+			}
+		}
+
+		if c.syncOwnerAndGroup {
+			err = c.chown(ctx, n.path, n.uid, n.gid)
+			if err != nil {
+				return err
+			}
+		}
+		err = c.chmod(ctx, n.path, n.mode.Perm())
 		if err != nil {
 			return err
 		}
+		if c.syncModTime {
+			err = c.chtimes(ctx, n.path, time.Now(), n.modTime)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
 	}
-	return nil
+
+	return postWalk(ctx, treeRoot)
+}
+
+func sendFileWork(localPath, remotePath string, lfi, rfi *fileInfo) fileWork {
+	return func(c *Client, ctx context.Context) error {
+		return c.sendFileAndChmod(ctx,
+			localPath,
+			remotePath,
+			lfi,
+			rfi)
+	}
+}
+
+func ensureRemoteNotExistWork(remotePath string) fileWork {
+	return func(c *Client, ctx context.Context) error {
+		return c.ensureNotExist(ctx, remotePath)
+	}
 }
 
 func (c *Client) isUpdateNeeded(src, dest *fileInfo) bool {
