@@ -68,6 +68,7 @@ type options struct {
 	syncOwnerAndGroup       bool
 	syncModTime             bool
 	updateOnly              bool
+	workers                 int
 }
 
 func parseOptions(subcommand, usage string, args []string) (*flag.FlagSet, *options) {
@@ -88,6 +89,7 @@ func parseOptions(subcommand, usage string, args []string) (*flag.FlagSet, *opti
 	fs.BoolVar(&opts.syncOwnerAndGroup, "o", false, "preseve owner and group (super-user only)")
 	fs.BoolVar(&opts.syncModTime, "t", false, "preserve modification times")
 	fs.BoolVar(&opts.updateOnly, "u", false, "skip files that are newer on the receiver")
+	fs.IntVar(&opts.workers, "workers", 4, "worker count")
 	fs.Parse(args)
 	return fs, &opts
 }
@@ -124,6 +126,7 @@ func (o *options) buildRDirSyncClientOptions() []rdirsync.ClientOption {
 		rdirsync.SetSyncOwnerAndGroup(o.syncOwnerAndGroup),
 		rdirsync.SetSyncModTime(o.syncModTime),
 		rdirsync.SetUpdateOnly(o.updateOnly),
+		rdirsync.SetFileWorkerCount(o.workers),
 	}
 }
 
