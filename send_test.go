@@ -91,12 +91,6 @@ func TestSend(t *testing.T) {
 			},
 		},
 		{
-			tree: testFileTreeNode{name: "file1", mode: 0600, size: 16 * 1024 * 1024},
-			modifications: []modificationOp{
-				writeRandomOp(buildSrcPath("file1"), 16*1024*1024, 1024),
-			},
-		},
-		{
 			tree: testFileTreeNode{name: "file1", mode: 0600, size: 0},
 			modifications: []modificationOp{
 				writeRandomOp(buildSrcPath("file1"), 0, 2000),

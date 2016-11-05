@@ -40,13 +40,11 @@ func TestSimpleCopy(t *testing.T) {
 		truncateSize int64
 	}{
 		{origSize: 1024 * 1024, writeOffset: 512 * 1024, writeLen: 1024 * 1024},
-		{origSize: 1024 * 1024, writeOffset: 1024 * 1024, writeLen: 1024 * 1024},
 		{origSize: 1024 * 1024, writeOffset: 0, writeLen: 1024 * 1024},
 		{origSize: 1024 * 1024, writeOffset: 0, writeLen: 512 * 1024},
 		{origSize: 1024 * 1024, truncates: true, truncateSize: 0},
 		{origSize: 1024 * 1024, truncates: true, truncateSize: 512 * 1024},
 		{origSize: 1024 * 1024, writeOffset: 36, writeLen: 4 * 1024, truncates: true, truncateSize: 10 * 1024},
-		{origSize: 8096 * 1024, writeOffset: 8096 * 1024, writeLen: 1024},
 	}
 
 	for _, tc := range testCases {
@@ -122,13 +120,11 @@ func TestCompareAndCopy(t *testing.T) {
 		truncateSize int64
 	}{
 		{origSize: 1024 * 1024, writeOffset: 512 * 1024, writeLen: 1024 * 1024},
-		{origSize: 1024 * 1024, writeOffset: 1024 * 1024, writeLen: 1024 * 1024},
 		{origSize: 1024 * 1024, writeOffset: 0, writeLen: 1024 * 1024},
 		{origSize: 1024 * 1024, writeOffset: 0, writeLen: 512 * 1024},
 		{origSize: 1024 * 1024, truncates: true, truncateSize: 0},
 		{origSize: 1024 * 1024, truncates: true, truncateSize: 512 * 1024},
 		{origSize: 1024 * 1024, writeOffset: 36, writeLen: 4 * 1024, truncates: true, truncateSize: 10 * 1024},
-		{origSize: 8096 * 1024, writeOffset: 8096 * 1024, writeLen: 1024},
 	}
 
 	for _, tc := range testCases {
