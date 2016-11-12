@@ -1,3 +1,4 @@
 cmd/client/client
+cmd/rdirsync/rdirsync
 cmd/server/server
 tags
