@@ -60,6 +60,11 @@ func runServer(options *commandOptions, args []string) error {
 			if err != nil {
 				return err
 			}
+		} else if strings.HasPrefix(line, "sendDir\t") {
+			err = processSendDir(line, r)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -82,22 +87,9 @@ func processSendFile(line string, r *bufio.Reader) error {
 	path := args[7]
 
 	dir := filepath.Dir(path)
-	err = os.MkdirAll(dir, 0700)
+	err = ensureDirExists(dir, 0700)
 	if err != nil {
-		perr := err.(*os.PathError)
-		if perr.Err != syscall.ENOTDIR {
-			return errors.WithStack(err)
-		}
-
-		err = os.Remove(perr.Path)
-		if err != nil {
-			return errors.WithStack(err)
-		}
-
-		err = os.MkdirAll(dir, 0700)
-		if err != nil {
-			return errors.WithStack(err)
-		}
+		return nil
 	}
 
 	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
@@ -119,6 +111,51 @@ func processSendFile(line string, r *bufio.Reader) error {
 	return nil
 }
 
+func processSendDir(line string, r *bufio.Reader) error {
+	args := strings.SplitN(line, "\t", 8)
+	mode, err := parseFileMode(args[1])
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	// atime := args[2]
+	// mtime := args[3]
+	// owner := args[4]
+	// group := args[5]
+	path := args[6]
+
+	err = ensureDirExists(path, mode)
+	if err != nil {
+		return err
+	}
+
+	err = os.Chmod(path, mode)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	return nil
+}
+
+func ensureDirExists(path string, mode os.FileMode) error {
+	err := os.MkdirAll(path, mode)
+	if err != nil {
+		perr := err.(*os.PathError)
+		if perr.Err != syscall.ENOTDIR {
+			return errors.WithStack(err)
+		}
+
+		err = os.Remove(perr.Path)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+
+		err = os.MkdirAll(path, mode)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+	}
+	return nil
+}
+
 func parseSize(s string) (int64, error) {
 	return strconv.ParseInt(s, 10, 64)
 }
@@ -137,23 +174,65 @@ func runClient(options *commandOptions, args []string) error {
 		return errors.Errorf("source and destination path needed")
 	}
 
-	srcPath := args[0]
-	destPath := args[1]
+	return sendDirOrFile(args[0], args[1])
+}
 
+func sendDirOrFile(srcPath, destPath string) error {
+	srcInfo, err := os.Stat(srcPath)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	return sendDirOrFileHelper(srcPath, destPath, srcInfo)
+}
+
+func sendDirOrFileHelper(srcPath, destPath string, srcInfo os.FileInfo) error {
+	if srcInfo.IsDir() {
+		entries, err := readDir(srcPath)
+		if err != nil {
+			return err
+		}
+
+		for _, entry := range entries {
+			err := sendDirOrFileHelper(
+				filepath.Join(srcPath, entry.Name()),
+				filepath.Join(destPath, entry.Name()),
+				entry)
+			if err != nil {
+				return err
+			}
+		}
+
+		mode := srcInfo.Mode().Perm()
+		fmt.Printf("sendDir\t%o\tatime\tmtime\towner\tgroup\t%s\n", mode, destPath)
+	} else {
+		err := sendFile(srcPath, destPath, srcInfo)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func readDir(path string) ([]os.FileInfo, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	defer file.Close()
+
+	return file.Readdir(0)
+}
+
+func sendFile(srcPath, destPath string, srcInfo os.FileInfo) error {
+	mode := srcInfo.Mode().Perm()
+	size := srcInfo.Size()
+	fmt.Printf("sendFile\t%o\tatime\tmtime\towner\tgroup\t%d\t%s\n", mode, size, destPath)
 	file, err := os.Open(srcPath)
 	if err != nil {
 		return errors.WithStack(err)
 	}
 	defer file.Close()
-
-	fi, err := file.Stat()
-	if err != nil {
-		return errors.WithStack(err)
-	}
-
-	mode := fi.Mode().Perm()
-	size := fi.Size()
-	fmt.Printf("sendFile\t%o\tatime\tmtime\towner\tgroup\t%d\t%s\n", mode, size, destPath)
 	_, err = io.Copy(os.Stdout, file)
 	if err != nil {
 		return errors.WithStack(err)
