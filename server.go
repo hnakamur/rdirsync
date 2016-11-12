@@ -132,6 +132,40 @@ func (s *server) Chtimes(ctx context.Context, req *pb.ChtimesRequest) (*pb.Empty
 	return new(pb.Empty), err
 }
 
+func (s *server) ChangeAttributes(ctx context.Context, req *pb.ChangeAttributesRequest) (*pb.Empty, error) {
+	if req.ChangesOwner {
+		uid, err := s.userGroupDB.LookupUser(req.Owner)
+		if err != nil {
+			return new(pb.Empty), err
+		}
+		gid, err := s.userGroupDB.LookupGroup(req.Group)
+		if err != nil {
+			return new(pb.Empty), err
+		}
+		err = os.Chown(req.Path, int(uid), int(gid))
+		if err != nil {
+			return new(pb.Empty), err
+		}
+	}
+
+	if req.ChangesMode {
+		err := os.Chmod(req.Path, os.FileMode(req.Mode).Perm())
+		if err != nil {
+			return new(pb.Empty), err
+		}
+	}
+
+	if req.ChangesTime {
+		err := os.Chtimes(req.Path,
+			pb.ConvertTimeFromPB(req.Atime),
+			pb.ConvertTimeFromPB(req.Mtime))
+		if err != nil {
+			return new(pb.Empty), err
+		}
+	}
+	return new(pb.Empty), nil
+}
+
 func (s *server) EnsureDirExists(ctx context.Context, req *pb.EnsureDirExistsRequest) (*pb.Empty, error) {
 	err := internal.EnsureDirExists(req.Path, 0700)
 	return new(pb.Empty), err

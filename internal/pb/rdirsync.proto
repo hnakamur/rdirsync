@@ -18,6 +18,7 @@ service RDirSync {
   rpc Chown(ChownRequest) returns (Empty) {}
   rpc Chmod(ChmodRequest) returns (Empty) {}
   rpc Chtimes(ChtimesRequest) returns (Empty) {}
+  rpc ChangeAttributes(ChangeAttributesRequest) returns (Empty) {}
 
   rpc EnsureDirExists(EnsureDirExistsRequest) returns (Empty) {}
   rpc EnsureNotExist(EnsureNotExistRequest) returns (Empty) {}
@@ -79,6 +80,18 @@ message ChtimesRequest {
   string path = 1;
   int64 atime = 2;
   int64 mtime = 3;
+}
+
+message ChangeAttributesRequest {
+  string path = 1;
+  bool changesOwner = 2;
+  bool changesMode  = 3;
+  bool changesTime = 4;
+  string owner = 5;
+  string group = 6;
+  int32 mode = 7;
+  int64 atime = 8;
+  int64 mtime = 9;
 }
 
 message EnsureNotExistRequest {

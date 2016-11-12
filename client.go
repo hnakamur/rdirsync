@@ -320,6 +320,40 @@ func (c *Client) chtimes(ctx context.Context, remotePath string, atime, mtime ti
 	return err
 }
 
+func (c *Client) changeAttributes(ctx context.Context, remotePath string, changesOwner bool, uid, gid uint32, changesMode bool, mode os.FileMode, changesTime bool, atime, mtime time.Time) error {
+	var owner string
+	var group string
+	var atimeNano int64
+	var mtimeNano int64
+	var err error
+	if changesOwner {
+		owner, err = c.userGroupDB.LookupUid(uid)
+		if err != nil {
+			return err
+		}
+		group, err = c.userGroupDB.LookupGid(gid)
+		if err != nil {
+			return err
+		}
+	}
+	if changesTime {
+		atimeNano = pb.ConvertTimeToPB(atime)
+		mtimeNano = pb.ConvertTimeToPB(mtime)
+	}
+	_, err = c.client.ChangeAttributes(ctx, &pb.ChangeAttributesRequest{
+		Path:         remotePath,
+		ChangesOwner: changesOwner,
+		ChangesMode:  changesMode,
+		ChangesTime:  changesTime,
+		Owner:        owner,
+		Group:        group,
+		Mode:         int32(mode.Perm()),
+		Atime:        atimeNano,
+		Mtime:        mtimeNano,
+	})
+	return err
+}
+
 func (c *Client) readRemoteDir(ctx context.Context, remotePath string) ([]*fileInfo, error) {
 	stream, err := c.client.ReadDir(ctx, &pb.ReadDirRequest{
 		Path:               remotePath,
@@ -760,23 +794,10 @@ func (c *Client) sendFileAndChmod(ctx context.Context, localPath, remotePath str
 		return err2
 	}
 
-	if c.syncOwnerAndGroup {
-		err = c.chown(ctx, localPath, lfi.Uid(), lfi.Gid())
-		if err != nil {
-			return err
-		}
-	}
-	err = c.chmod(ctx, remotePath, lfi.Mode())
-	if err != nil {
-		return err
-	}
-	if c.syncModTime {
-		err = c.chtimes(ctx, remotePath, time.Now(), lfi.ModTime())
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return c.changeAttributes(ctx, remotePath,
+		c.syncOwnerAndGroup, lfi.Uid(), lfi.Gid(),
+		true, lfi.Mode(),
+		c.syncModTime, time.Now(), lfi.ModTime())
 }
 
 func (c *Client) ensureDirExists(ctx context.Context, remotePath string) error {
@@ -929,23 +950,10 @@ func (c *Client) sendDirAndChmod(ctx context.Context, localPath, remotePath stri
 			}
 		}
 
-		if c.syncOwnerAndGroup {
-			err = c.chown(ctx, n.path, n.uid, n.gid)
-			if err != nil {
-				return err
-			}
-		}
-		err = c.chmod(ctx, n.path, n.mode.Perm())
-		if err != nil {
-			return err
-		}
-		if c.syncModTime {
-			err = c.chtimes(ctx, n.path, time.Now(), n.modTime)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
+		return c.changeAttributes(ctx, n.path,
+			c.syncOwnerAndGroup, n.uid, n.gid,
+			true, n.mode.Perm(),
+			c.syncModTime, time.Now(), n.modTime)
 	}
 
 	return postWalk(ctx, treeRoot)
